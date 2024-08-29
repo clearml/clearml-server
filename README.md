@@ -99,10 +99,8 @@ Launch The **ClearML Server** in any of the following formats:
     - [Linux](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_linux_mac)
     - [macOS](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_linux_mac)
     - [Windows 10](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_win)
-- Kubernetes    
-    - [Kubernetes Helm](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_kubernetes_helm)
-    - Manual [Kubernetes installation](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_kubernetes)
-
+- [Kubernetes Helm](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_kubernetes_helm)
+ 
 ## Connecting ClearML to your ClearML Server
 
 In order to set up the **ClearML** client to work with your **ClearML Server**:
@@ -120,11 +118,14 @@ In order to set up the **ClearML** client to work with your **ClearML Server**:
             files_server: "http://localhost:8081"
         }
 
-**Note**: If you have set up your **ClearML Server** in a sub-domain configuration, then there is no need to specify a port number,
+
+> [!NOTE]
+>
+> If you have set up your **ClearML Server** in a sub-domain configuration, then there is no need to specify a port number,
 it will be inferred from the http/s scheme.
 
-After launching the **ClearML Server** and configuring the **ClearML** client to use the **ClearML Server**,
-you can [use](https://github.com/allegroai/clearml) **ClearML** in your experiments and view them in your **ClearML Server** web server,
+After launching the ClearML Server and configuring the **ClearML** client to use the ClearML Server,
+you can use [ClearML](https://github.com/allegroai/clearml) in your experiments and view them in your ClearML Server web server,
 for example http://localhost:8080.  
 For more information about the ClearML client, see [**ClearML**](https://github.com/allegroai/clearml).
 
@@ -145,7 +146,9 @@ Every task launched by ClearML-Agent Services  will be registered as a new node 
 providing tracking and transparency capabilities.  
 You can also run the ClearML-Agent Services manually, see details in [ClearML-agent services mode](https://github.com/allegroai/clearml-agent#clearml-agent-services-mode-)
 
-**Note**: It is the user's responsibility to make sure the proper tasks are pushed into the `services` queue. 
+> [!NOTE]
+>
+> It is the user's responsibility to make sure the proper tasks are pushed into the `services` queue. 
 Do not enqueue training / inference tasks into the `services` queue, as it will put unnecessary load on the server.
 
 ## Advanced Functionality
@@ -224,7 +227,7 @@ To upgrade your existing **ClearML Server** deployment:
 
 ## Community & Support
 
-If you have any questions, look to the ClearML [FAQ](https://clear.ml/docs/latest/docs/faq), or
+If you have any questions, look at the ClearML [FAQ](https://clear.ml/docs/latest/docs/faq), or
 tag your questions on [stackoverflow](https://stackoverflow.com/questions/tagged/clearml) with '**clearml**' tag.
 
 For feature requests or bug reports, please use [GitHub issues](https://github.com/allegroai/clearml-server/issues).
