@@ -43,7 +43,7 @@ server {
 
     location /api {
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header Host $host;
+        proxy_set_header Host $proxy_host;
         proxy_pass ${NGINX_APISERVER_ADDR};
         rewrite /api/(.*) /$1  break;
     }
