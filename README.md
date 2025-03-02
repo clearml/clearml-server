@@ -7,7 +7,7 @@
 
 [![GitHub license](https://img.shields.io/badge/license-SSPL-green.svg)](https://img.shields.io/badge/license-SSPL-green.svg)
 [![Python versions](https://img.shields.io/badge/python-3.9-blue.svg)](https://img.shields.io/badge/python-3.9-blue.svg)
-[![GitHub version](https://img.shields.io/github/release-pre/clearml/trains-server.svg)](https://img.shields.io/github/release-pre/clearml/trains-server.svg)
+[![GitHub version](https://img.shields.io/github/release-pre/clearml/clearml-server.svg)](https://img.shields.io/github/release-pre/clearml/clearml-server.svg)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/clearml)](https://artifacthub.io/packages/search?repo=clearml)
 
 </div>
@@ -139,7 +139,7 @@ To restart the **ClearML Server**, you must first stop the containers, and then 
 
 ## Upgrading <a name="upgrade"></a>
 
-**ClearML Server** releases are also reflected in the [docker compose configuration file](https://github.com/clearml/trains-server/blob/master/docker/docker-compose.yml).  
+**ClearML Server** releases are also reflected in the [docker compose configuration file](https://github.com/clearml/clearml-server/blob/master/docker/docker-compose.yml).  
 We strongly encourage you to keep your **ClearML Server** up to date, by keeping up with the current release.
 
 **Note**: The following upgrade instructions use the Linux OS as an example.
@@ -172,7 +172,7 @@ To upgrade your existing **ClearML Server** deployment:
 1. Download the latest `docker-compose.yml` file.
 
    ```bash
-   curl https://raw.githubusercontent.com/clearml/trains-server/master/docker/docker-compose.yml -o docker-compose.yml 
+   curl https://raw.githubusercontent.com/clearml/clearml-server/master/docker/docker-compose.yml -o docker-compose.yml 
    ```
 
 1. Configure the ClearML-Agent Services (not supported on Windows installation). 
