@@ -7,42 +7,15 @@
 
 [![GitHub license](https://img.shields.io/badge/license-SSPL-green.svg)](https://img.shields.io/badge/license-SSPL-green.svg)
 [![Python versions](https://img.shields.io/badge/python-3.9-blue.svg)](https://img.shields.io/badge/python-3.9-blue.svg)
-[![GitHub version](https://img.shields.io/github/release-pre/allegroai/trains-server.svg)](https://img.shields.io/github/release-pre/allegroai/trains-server.svg)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/allegroai)](https://artifacthub.io/packages/search?repo=allegroai)
+[![GitHub version](https://img.shields.io/github/release-pre/clearml/trains-server.svg)](https://img.shields.io/github/release-pre/clearml/trains-server.svg)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/clearml)](https://artifacthub.io/packages/search?repo=clearml)
 
 </div>
-
----
-<div align="center">
-
-**Note regarding Apache Log4j2 Remote Code Execution (RCE) Vulnerability - CVE-2021-44228 - ESA-2021-31**
-
-</div>
-
-According to [ElasticSearch's latest report](https://discuss.elastic.co/t/apache-log4j2-remote-code-execution-rce-vulnerability-cve-2021-44228-esa-2021-31/291476), 
-supported versions of Elasticsearch (6.8.9+, 7.8+) used with recent versions of the JDK (JDK9+) **are not susceptible to either remote code execution or information leakage**
-due to Elasticsearch’s usage of the Java Security Manager.
-
-**As the latest version of ClearML Server uses Elasticsearch 7.10+ with JDK15, it is not affected by these vulnerabilities.**
-
-As a precaution, we've upgraded the ES version to 7.16.2 and added the mitigation recommended by ElasticSearch to our latest [docker-compose.yml](https://github.com/allegroai/clearml-server/blob/cfccbe05c158b75e520581f86e9668291da5c70a/docker/docker-compose.yml#L42) file.
-
-While previous Elasticsearch versions (5.6.11+, 6.4.0+ and 7.0.0+) used by older ClearML Server versions are only susceptible to the information leakage vulnerability
-(which in any case **does not permit access to data within the Elasticsearch cluster**), 
-we still recommend upgrading to the latest version of ClearML Server. Alternatively, you can apply the mitigation as implemented in our latest 
-[docker-compose.yml](https://github.com/allegroai/clearml-server/blob/cfccbe05c158b75e520581f86e9668291da5c70a/docker/docker-compose.yml#L42) file.    
-
-**Update 15 December**: A further vulnerability (CVE-2021-45046) was disclosed on December 14th.
-ElasticSearch's guidance for Elasticsearch remains unchanged by this new vulnerability, thus **not affecting ClearML Server**.
-
-**Update 22 December**: To keep with ElasticSearch's recommendations, we've upgraded the ES version to the newly released 7.16.2
-
----
 
 ## ClearML Server
 #### *Formerly known as Trains Server*
 
-The **ClearML Server** is the backend service infrastructure for [ClearML](https://github.com/allegroai/clearml).
+The **ClearML Server** is the backend service infrastructure for [ClearML](https://github.com/clearml/clearml).
 It allows multiple users to collaborate and manage their experiments.
 **ClearML** offers a [free hosted service](https://app.clear.ml/), which is maintained by **ClearML** and open to anyone.
 In order to host your own server, you will need to launch the **ClearML Server** and point **ClearML** to it.
@@ -99,8 +72,10 @@ Launch The **ClearML Server** in any of the following formats:
     - [Linux](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_linux_mac)
     - [macOS](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_linux_mac)
     - [Windows 10](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_win)
-- [Kubernetes Helm](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_kubernetes_helm)
- 
+- Kubernetes    
+    - [Kubernetes Helm](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_kubernetes_helm)
+    - Manual [Kubernetes installation](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_kubernetes)
+
 ## Connecting ClearML to your ClearML Server
 
 In order to set up the **ClearML** client to work with your **ClearML Server**:
@@ -118,16 +93,13 @@ In order to set up the **ClearML** client to work with your **ClearML Server**:
             files_server: "http://localhost:8081"
         }
 
-
-> [!NOTE]
->
-> If you have set up your **ClearML Server** in a sub-domain configuration, then there is no need to specify a port number,
+**Note**: If you have set up your **ClearML Server** in a sub-domain configuration, then there is no need to specify a port number,
 it will be inferred from the http/s scheme.
 
-After launching the ClearML Server and configuring the **ClearML** client to use the ClearML Server,
-you can use [ClearML](https://github.com/allegroai/clearml) in your experiments and view them in your ClearML Server web server,
+After launching the **ClearML Server** and configuring the **ClearML** client to use the **ClearML Server**,
+you can [use](https://github.com/clearml/clearml) **ClearML** in your experiments and view them in your **ClearML Server** web server,
 for example http://localhost:8080.  
-For more information about the ClearML client, see [**ClearML**](https://github.com/allegroai/clearml).
+For more information about the ClearML client, see [**ClearML**](https://github.com/clearml/clearml).
 
 ## ClearML-Agent Services  <a name="services"></a> 
 
@@ -144,11 +116,9 @@ increased data transparency)
 ClearML-Agent Services container will spin **any** task enqueued into the dedicated `services` queue. 
 Every task launched by ClearML-Agent Services  will be registered as a new node in the system, 
 providing tracking and transparency capabilities.  
-You can also run the ClearML-Agent Services manually, see details in [ClearML-agent services mode](https://github.com/allegroai/clearml-agent#clearml-agent-services-mode-)
+You can also run the ClearML-Agent Services manually, see details in [ClearML-agent services mode](https://github.com/clearml/clearml-agent#clearml-agent-services-mode-)
 
-> [!NOTE]
->
-> It is the user's responsibility to make sure the proper tasks are pushed into the `services` queue. 
+**Note**: It is the user's responsibility to make sure the proper tasks are pushed into the `services` queue. 
 Do not enqueue training / inference tasks into the `services` queue, as it will put unnecessary load on the server.
 
 ## Advanced Functionality
@@ -169,7 +139,7 @@ To restart the **ClearML Server**, you must first stop the containers, and then 
 
 ## Upgrading <a name="upgrade"></a>
 
-**ClearML Server** releases are also reflected in the [docker compose configuration file](https://github.com/allegroai/trains-server/blob/master/docker/docker-compose.yml).  
+**ClearML Server** releases are also reflected in the [docker compose configuration file](https://github.com/clearml/trains-server/blob/master/docker/docker-compose.yml).  
 We strongly encourage you to keep your **ClearML Server** up to date, by keeping up with the current release.
 
 **Note**: The following upgrade instructions use the Linux OS as an example.
@@ -202,7 +172,7 @@ To upgrade your existing **ClearML Server** deployment:
 1. Download the latest `docker-compose.yml` file.
 
    ```bash
-   curl https://raw.githubusercontent.com/allegroai/trains-server/master/docker/docker-compose.yml -o docker-compose.yml 
+   curl https://raw.githubusercontent.com/clearml/trains-server/master/docker/docker-compose.yml -o docker-compose.yml 
    ```
 
 1. Configure the ClearML-Agent Services (not supported on Windows installation). 
@@ -227,10 +197,10 @@ To upgrade your existing **ClearML Server** deployment:
 
 ## Community & Support
 
-If you have any questions, look at the ClearML [FAQ](https://clear.ml/docs/latest/docs/faq), or
+If you have any questions, look to the ClearML [FAQ](https://clear.ml/docs/latest/docs/faq), or
 tag your questions on [stackoverflow](https://stackoverflow.com/questions/tagged/clearml) with '**clearml**' tag.
 
-For feature requests or bug reports, please use [GitHub issues](https://github.com/allegroai/clearml-server/issues).
+For feature requests or bug reports, please use [GitHub issues](https://github.com/clearml/clearml-server/issues).
 
 Additionally, you can always find us at *clearml@allegro.ai*
 

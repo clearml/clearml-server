@@ -20,4 +20,5 @@ class User(DbModelMixin, Document):
     given_name = StringField(user_set_allowed=True)
     avatar = StringField()
     preferences = DynamicField(default="", exclude_by_default=True)
+    created_in_version = StringField()
     created = DateTimeField()

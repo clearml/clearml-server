@@ -37,10 +37,18 @@ class Model(AttributedDocument):
             "project",
             "task",
             "last_update",
-            ("company", "framework"),
+            ("company", "last_update"),
             ("company", "name"),
-            ("company", "user"),
             ("company", "uri"),
+            # distinct queries support
+            ("company", "tags"),
+            ("company", "system_tags"),
+            ("company", "project", "tags"),
+            ("company", "project", "system_tags"),
+            ("company", "user"),
+            ("company", "project", "user"),
+            ("company", "framework"),
+            ("company", "project", "framework"),
             {
                 "name": "%s.model.main_text_index" % Database.backend,
                 "fields": ["$name", "$id", "$comment", "$parent", "$task", "$project"],
@@ -71,8 +79,8 @@ class Model(AttributedDocument):
             "parent",
             "metadata.*",
         ),
-        range_fields=("last_metrics.*", "last_iteration"),
-        datetime_fields=("last_update",),
+        range_fields=("created", "last_metrics.*", "last_iteration"),
+        datetime_fields=("last_update", "last_change"),
     )
 
     id = StringField(primary_key=True)

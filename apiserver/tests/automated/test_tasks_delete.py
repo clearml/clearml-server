@@ -59,7 +59,7 @@ class TestTasksResetDelete(TestService):
         event_urls.update(self.send_model_events(model))
         res = self.assert_delete_task(task, force=True, return_file_urls=True)
         self.assertEqual(set(res.urls.model_urls), draft_model_urls)
-        self.assertEqual(set(res.urls.event_urls), event_urls)
+        self.assertFalse(set(res.urls.event_urls))  # event urls are not returned anymore
         self.assertEqual(set(res.urls.artifact_urls), artifact_urls)
 
     def test_reset(self):
@@ -84,7 +84,7 @@ class TestTasksResetDelete(TestService):
         ) = self.create_task_with_data()
         res = self.api.tasks.reset(task=task, force=True, return_file_urls=True)
         self.assertEqual(set(res.urls.model_urls), draft_model_urls)
-        self.assertEqual(set(res.urls.event_urls), event_urls)
+        self.assertFalse(res.urls.event_urls)  # event urls are not returned anymore
         self.assertEqual(set(res.urls.artifact_urls), artifact_urls)
 
     def test_model_delete(self):
@@ -124,7 +124,7 @@ class TestTasksResetDelete(TestService):
         self.assertEqual(res.disassociated_tasks, 0)
         self.assertEqual(res.deleted_tasks, 1)
         self.assertEqual(res.deleted_models, 2)
-        self.assertEqual(set(res.urls.event_urls), event_urls)
+        self.assertFalse(set(res.urls.event_urls))  # event urls are not returned anymore
         self.assertEqual(set(res.urls.artifact_urls), artifact_urls)
         with self.api.raises(errors.bad_request.InvalidTaskId):
             self.api.tasks.get_by_id(task=task)

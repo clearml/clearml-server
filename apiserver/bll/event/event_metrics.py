@@ -24,6 +24,8 @@ from apiserver.bll.event.scalar_key import ScalarKey, ScalarKeyEnum
 from apiserver.bll.query import Builder as QueryBuilder
 from apiserver.config_repo import config
 from apiserver.database.errors import translate_errors_context
+from apiserver.database.model.model import Model
+from apiserver.database.model.task.task import Task
 from apiserver.utilities.dicts import nested_get
 
 log = config.logger(__file__)
@@ -43,6 +45,7 @@ class EventMetrics:
         samples: int,
         key: ScalarKeyEnum,
         metric_variants: MetricVariants = None,
+        model_events: bool = False,
     ) -> dict:
         """
         Get scalar metric histogram per metric and variant
@@ -60,6 +63,7 @@ class EventMetrics:
             samples=samples,
             key=ScalarKey.resolve(key),
             metric_variants=metric_variants,
+            model_events=model_events,
         )
 
     def _get_scalar_average_per_iter_core(
@@ -71,6 +75,7 @@ class EventMetrics:
         key: ScalarKey,
         run_parallel: bool = True,
         metric_variants: MetricVariants = None,
+        model_events: bool = False,
     ) -> dict:
         intervals = self._get_task_metric_intervals(
             company_id=company_id,
@@ -102,7 +107,22 @@ class EventMetrics:
             )
 
         ret = defaultdict(dict)
+        if not metrics:
+            return ret
+
+        last_metrics = {}
+        cls_ = Model if model_events else Task
+        task = cls_.objects(id=task_id).only("last_metrics").first()
+        if task and task.last_metrics:
+            for m_data in task.last_metrics.values():
+                for v_data in m_data.values():
+                    last_metrics[(v_data.metric, v_data.variant)] = v_data
+
         for metric_key, metric_values in metrics:
+            for variant_key, data in metric_values.items():
+                last_metrics_data = last_metrics.get((metric_key, variant_key))
+                if last_metrics_data and last_metrics_data.x_axis_label is not None:
+                    data["x_axis_label"] = last_metrics_data.x_axis_label
             ret[metric_key].update(metric_values)
 
         return ret
@@ -113,6 +133,7 @@ class EventMetrics:
         samples,
         key: ScalarKeyEnum,
         metric_variants: MetricVariants = None,
+        model_events: bool = False,
     ):
         """
         Compare scalar metrics for different tasks per metric and variant
@@ -136,6 +157,7 @@ class EventMetrics:
             key=ScalarKey.resolve(key),
             metric_variants=metric_variants,
             run_parallel=False,
+            model_events=model_events,
         )
         task_ids, company_ids = zip(
             *(
@@ -165,7 +187,7 @@ class EventMetrics:
         self,
         companies: TaskCompanies,
         metric_variants: MetricVariants = None,
-    ) -> Mapping[str, dict]:
+    ) -> Mapping[str, Sequence[dict]]:
         """
         For the requested tasks return all the events delivered for the single iteration (-2**31)
         """

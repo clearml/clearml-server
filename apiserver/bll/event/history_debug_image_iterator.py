@@ -183,7 +183,7 @@ class HistoryDebugImageIterator:
         order = "desc" if navigate_earlier else "asc"
         es_req = {
             "size": 1,
-            "sort": [{"metric": order}, {"variant": order}],
+            "sort": [{"metric": order}, {"variant": order}, {"url": "desc"}],
             "query": {"bool": {"must": must_conditions}},
         }
 
@@ -242,7 +242,7 @@ class HistoryDebugImageIterator:
         ]
         es_req = {
             "size": 1,
-            "sort": [{"iter": order}, {"metric": order}, {"variant": order}],
+            "sort": [{"iter": order}, {"metric": order}, {"variant": order}, {"url": "desc"}],
             "query": {"bool": {"must": must_conditions}},
         }
         es_res = search_company_events(
@@ -338,7 +338,7 @@ class HistoryDebugImageIterator:
 
             es_req = {
                 "size": 1,
-                "sort": {"iter": "desc"},
+                "sort": [{"iter": "desc"}, {"url": "desc"}],
                 "query": {"bool": {"must": must_conditions}},
             }
 

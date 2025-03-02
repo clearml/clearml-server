@@ -1,3 +1,5 @@
+import unittest
+
 from apiserver.apierrors import errors
 from apiserver.apierrors.errors.bad_request import InvalidModelId
 from apiserver.tests.automated import TestService
@@ -236,6 +238,23 @@ class TestModelsService(TestService):
         res = self.api.models.get_frameworks(projects=[project])
         self.assertEqual([], res.frameworks)
 
+    @unittest.skip(
+        """This test requires the following setting
+        CLEARML__services__async_urls_delete__fileserver__url_prefixes=["https://files.allegro-master.hosted.allegro.ai"
+        Check the test results in the logs of async_delete service
+        """
+    )
+    def test_delete_many_with_files(self):
+        models = [
+            self._create_model(
+                name=f"delete model test{idx}",
+                uri=f"https://files.allegro-master.hosted.allegro.ai/models/test{idx}.txt"
+            )
+            for idx in range(2)
+        ]
+        self.api.models.delete_many(ids=models)
+
+
     def test_make_public(self):
         m1 = self._create_model(name="public model test")
 
@@ -277,7 +296,7 @@ class TestModelsService(TestService):
             service="models",
             delete_params=dict(can_fail=True, force=True),
             name=kwargs.pop("name", "test"),
-            uri=kwargs.pop("name", "file:///a"),
+            uri=kwargs.pop("uri", "file:///a"),
             labels=kwargs.pop("labels", {}),
             **kwargs,
         )

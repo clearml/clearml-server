@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import datetime
-from typing import Sequence, Optional, Tuple, Union
+from typing import Sequence, Optional, Tuple, Union, Iterable
 
 from elasticsearch import Elasticsearch
 from mongoengine import Q
@@ -34,6 +34,7 @@ class QueueBLL(object):
     def create(
         company_id: str,
         name: str,
+        display_name: str = None,
         tags: Optional[Sequence[str]] = None,
         system_tags: Optional[Sequence[str]] = None,
         metadata: Optional[dict] = None,
@@ -46,6 +47,7 @@ class QueueBLL(object):
                 company=company_id,
                 created=now,
                 name=name,
+                display_name=display_name,
                 tags=tags or [],
                 system_tags=system_tags or [],
                 metadata=metadata,
@@ -135,51 +137,78 @@ class QueueBLL(object):
             self.get_by_id(company_id=company_id, queue_id=queue_id, only=("id",))
             return Queue.safe_update(company_id, queue_id, update_fields)
 
-    def delete(self, company_id: str, user_id: str, queue_id: str, force: bool) -> None:
+    def _update_task_status_on_removal_from_queue(
+        self,
+        company_id: str,
+        user_id: str,
+        task_ids: Iterable[str],
+        queue_id: str,
+        reason: str
+    ) -> Sequence[str]:
+        from apiserver.bll.task import ChangeStatusRequest
+        tasks = []
+        for task_id in task_ids:
+            try:
+                task = Task.get(
+                    company=company_id,
+                    id=task_id,
+                    execution__queue=queue_id,
+                    _only=[
+                        "id",
+                        "company",
+                        "status",
+                        "enqueue_status",
+                        "project",
+                    ],
+                )
+                if not task:
+                    continue
+
+                tasks.append(task.id)
+                ChangeStatusRequest(
+                    task=task,
+                    new_status=task.enqueue_status or TaskStatus.created,
+                    status_reason=reason,
+                    status_message="",
+                    user_id=user_id,
+                    force=True,
+                ).execute(
+                    enqueue_status=None,
+                    unset__execution__queue=1,
+                )
+            except Exception as ex:
+                log.error(
+                    f"Failed updating task {task_id} status on removal from queue: {queue_id}, {str(ex)}"
+                )
+
+        return tasks
+
+    def delete(self, company_id: str, user_id: str, queue_id: str, force: bool) -> Sequence[str]:
         """
         Delete the queue
         :raise errors.bad_request.InvalidQueueId: if the queue is not found
         :raise errors.bad_request.QueueNotEmpty: if the queue is not empty and 'force' not set
         """
-        with translate_errors_context():
-            queue = self.get_by_id(company_id=company_id, queue_id=queue_id)
-            if queue.entries:
-                if not force:
-                    raise errors.bad_request.QueueNotEmpty(
-                        "use force=true to delete", id=queue_id
-                    )
-                from apiserver.bll.task import ChangeStatusRequest
-
-                for item in queue.entries:
-                    try:
-                        task = Task.get(
-                            company=company_id,
-                            id=item.task,
-                            _only=[
-                                "id",
-                                "company",
-                                "status",
-                                "enqueue_status",
-                                "project",
-                            ],
-                        )
-                        if not task:
-                            continue
-
-                        ChangeStatusRequest(
-                            task=task,
-                            new_status=task.enqueue_status or TaskStatus.created,
-                            status_reason="Queue was deleted",
-                            status_message="",
-                            user_id=user_id,
-                            force=True,
-                        ).execute(enqueue_status=None)
-                    except Exception as ex:
-                        log.exception(
-                            f"Failed dequeuing task {item.task} from queue: {queue_id}"
-                        )
-
+        queue = self.get_by_id(company_id=company_id, queue_id=queue_id)
+        if not queue.entries:
             queue.delete()
+            return []
+
+        if not force:
+            raise errors.bad_request.QueueNotEmpty(
+                "use force=true to delete", id=queue_id
+            )
+
+        tasks = self._update_task_status_on_removal_from_queue(
+            company_id=company_id,
+            user_id=user_id,
+            task_ids={item.task for item in queue.entries},
+            queue_id=queue_id,
+            reason=f"Queue {queue_id} was deleted",
+        )
+
+        queue.delete()
+        return tasks
 
     def get_all(
         self,
@@ -307,7 +336,36 @@ class QueueBLL(object):
 
             return queue.entries[0]
 
-    def remove_task(self, company_id: str, queue_id: str, task_id: str) -> int:
+    def clear_queue(
+        self,
+        company_id: str,
+        user_id: str,
+        queue_id: str,
+    ):
+        queue = Queue.objects(company=company_id, id=queue_id).first()
+        if not queue:
+            raise errors.bad_request.InvalidQueueId(
+                queue=queue_id
+            )
+
+        if not queue.entries:
+            return []
+
+        tasks = self._update_task_status_on_removal_from_queue(
+            company_id=company_id,
+            user_id=user_id,
+            task_ids={item.task for item in queue.entries},
+            queue_id=queue_id,
+            reason=f"Queue {queue_id} was cleared",
+        )
+
+        queue.update(entries=[])
+        queue.reload()
+        self.metrics.log_queue_metrics_to_es(company_id=company_id, queues=[queue])
+
+        return tasks
+
+    def remove_task(self, company_id: str, user_id: str, queue_id: str, task_id: str, update_task_status: bool = False) -> int:
         """
         Removes the task from the queue and returns the number of removed items
         :raise errors.bad_request.InvalidQueueOrTaskNotQueued: if the task is not found in the queue
@@ -322,6 +380,14 @@ class QueueBLL(object):
             res = Queue.objects(entries__task=task_id, **query).update_one(
                 pull_all__entries=entries_to_remove, last_update=datetime.utcnow()
             )
+            if res and update_task_status:
+                self._update_task_status_on_removal_from_queue(
+                    company_id=company_id,
+                    user_id=user_id,
+                    task_ids=[task_id],
+                    queue_id=queue_id,
+                    reason=f"Task was removed from the queue {queue_id}",
+                )
 
             queue.reload()
             self.metrics.log_queue_metrics_to_es(company_id=company_id, queues=[queue])
@@ -461,7 +527,7 @@ class QueueBLL(object):
                 [
                     {
                         "$match": {
-                            "company": {"$in": [None, "", company]},
+                            "company": {"$in": ["", company]},
                             "_id": queue_id,
                         }
                     },

@@ -12,7 +12,7 @@ class TestReports(TestService):
     def _delete_project(self, name):
         existing_project = first(
             self.api.projects.get_all_ex(
-                name=f"^{re.escape(name)}$", search_hidden=True
+                name=f"^{re.escape(name)}$", search_hidden=True, allow_public=False
             ).projects
         )
         if existing_project:
@@ -34,10 +34,10 @@ class TestReports(TestService):
         self.assertEqual(set(task.tags), set(tags))
         self.assertEqual(task.type, "report")
         self.assertEqual(set(task.system_tags), {"hidden", "reports"})
-        projects = self.api.projects.get_all_ex(name=r"^\.reports$").projects
+        projects = self.api.projects.get_all_ex(name=r"^\.reports$", allow_public=False).projects
         self.assertEqual(len(projects), 0)
         project = self.api.projects.get_all_ex(
-            name=r"^\.reports$", search_hidden=True
+            name=r"^\.reports$", search_hidden=True, allow_public=False
         ).projects[0]
         self.assertEqual(project.id, task.project.id)
         self.assertEqual(set(project.system_tags), {"hidden", "reports"})
@@ -108,6 +108,7 @@ class TestReports(TestService):
             include_stats=True,
             check_own_contents=True,
             search_hidden=True,
+            allow_public=False,
         ).projects
         self.assertEqual(len(projects), 1)
         p = projects[0]
@@ -120,6 +121,7 @@ class TestReports(TestService):
             include_stats=True,
             check_own_contents=True,
             search_hidden=True,
+            allow_public=False,
         ).projects
         self.assertEqual(len(projects), 1)
         p = projects[0]

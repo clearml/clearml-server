@@ -1,5 +1,5 @@
 import re
-from collections import namedtuple, defaultdict
+from collections import defaultdict
 from datetime import datetime
 from functools import reduce, partial
 from typing import (
@@ -107,7 +107,18 @@ class GetMixin(PropsMixin):
         ("_any_", "_or_"): lambda a, b: a | b,
         ("_all_", "_and_"): lambda a, b: a & b,
     }
-    MultiFieldParameters = namedtuple("MultiFieldParameters", "pattern fields")
+
+    @attr.s(auto_attribs=True)
+    class MultiFieldParameters:
+        fields: Sequence[str]
+        pattern: str = None
+        datetime: Union[list, str] = None
+
+        def __attrs_post_init__(self):
+            if not any(f is not None for f in (self.pattern, self.datetime)):
+                raise ValueError("Either 'pattern' or 'datetime' should be provided")
+            if all(f is not None for f in (self.pattern, self.datetime)):
+                raise ValueError("Only one of the 'pattern' and 'datetime' can be provided")
 
     _numeric_locale = {"locale": "en_US", "numericOrdering": True}
     _field_collation_overrides = {}
@@ -323,6 +334,8 @@ class GetMixin(PropsMixin):
                 specific rules on handling values). Only items matching ALL of these conditions will be retrieved.
             - <any|all>: {fields: [<field1>, <field2>, ...], pattern: <pattern>} Will query for items where any or all
                 provided fields match the provided pattern.
+            - <any|all>: {fields: [<field1>, <field2>, ...], datetime: <datetime condition>} Will query for items where any or all
+                provided datetime fields match the provided condition.
         :return: mongoengine.Q query object
         """
         return cls._prepare_query_no_company(
@@ -375,6 +388,46 @@ class GetMixin(PropsMixin):
         if field.startswith("last_metrics."):
             return cls._try_convert_to_numeric(value)
         return value
+
+    @classmethod
+    def _get_dates_query(cls, field: str, data: Union[list, str]) -> Union[Q, dict]:
+        """
+        Return dates query for the field
+        If the data is 2 values array and none of the values starts from dates comparison operations
+        then return the simplified range query
+        Otherwise return the dictionary of dates conditions
+        """
+        if not isinstance(data, list):
+            data = [data]
+
+        if len(data) == 2 and not any(
+                d.startswith(mod)
+                for d in data
+                if d is not None
+                for mod in ACCESS_MODIFIER
+        ):
+            return cls.get_range_field_query(field, data)
+
+        dict_query = {}
+        for d in data:
+            m = ACCESS_REGEX.match(d)
+            if not m:
+                continue
+
+            try:
+                value = parse_datetime(m.group("value"))
+                prefix = m.group("prefix")
+                modifier = ACCESS_MODIFIER.get(prefix)
+                f = (
+                    field
+                    if not modifier
+                    else "__".join((field, modifier))
+                )
+                dict_query[f] = value
+            except (ValueError, OverflowError):
+                pass
+
+        return dict_query
 
     @classmethod
     def _prepare_query_no_company(
@@ -446,33 +499,11 @@ class GetMixin(PropsMixin):
                 for field in opts.datetime_fields or []:
                     data = parameters.pop(field, None)
                     if data is not None:
-                        if not isinstance(data, list):
-                            data = [data]
-                        # date time fields also support simplified range queries. Check if this is the case
-                        if len(data) == 2 and not any(
-                            d.startswith(mod)
-                            for d in data
-                            if d is not None
-                            for mod in ACCESS_MODIFIER
-                        ):
-                            query &= cls.get_range_field_query(field, data)
-                        else:
-                            for d in data:  # type: str
-                                m = ACCESS_REGEX.match(d)
-                                if not m:
-                                    continue
-                                try:
-                                    value = parse_datetime(m.group("value"))
-                                    prefix = m.group("prefix")
-                                    modifier = ACCESS_MODIFIER.get(prefix)
-                                    f = (
-                                        field
-                                        if not modifier
-                                        else "__".join((field, modifier))
-                                    )
-                                    dict_query[f] = value
-                                except (ValueError, OverflowError):
-                                    pass
+                        dates_q = cls._get_dates_query(field, data)
+                        if isinstance(dates_q, Q):
+                            query &= dates_q
+                        elif isinstance(dates_q, dict):
+                            dict_query.update(dates_q)
 
                 for field, value in parameters.items():
                     for keys, func in cls._multi_field_param_prefix.items():
@@ -484,27 +515,40 @@ class GetMixin(PropsMixin):
                             raise MakeGetAllQueryError("incorrect field format", field)
                         if not data.fields:
                             break
-                        if any("._" in f for f in data.fields):
-                            q = reduce(
-                                lambda a, x: func(
-                                    a,
-                                    RegexQ(
-                                        __raw__={
-                                            x: {"$regex": data.pattern, "$options": "i"}
-                                        }
+                        if data.pattern is not None:
+                            if any("._" in f for f in data.fields):
+                                q = reduce(
+                                    lambda a, x: func(
+                                        a,
+                                        RegexQ(
+                                            __raw__={
+                                                x: {"$regex": data.pattern, "$options": "i"}
+                                            }
+                                        ),
                                     ),
-                                ),
-                                data.fields,
-                                RegexQ(),
-                            )
+                                    data.fields,
+                                    RegexQ(),
+                                )
+                            else:
+                                regex = RegexWrapper(data.pattern, flags=re.IGNORECASE)
+                                sep_fields = [f.replace(".", "__") for f in data.fields]
+                                q = reduce(
+                                    lambda a, x: func(a, RegexQ(**{x: regex})),
+                                    sep_fields,
+                                    RegexQ(),
+                                )
                         else:
-                            regex = RegexWrapper(data.pattern, flags=re.IGNORECASE)
-                            sep_fields = [f.replace(".", "__") for f in data.fields]
-                            q = reduce(
-                                lambda a, x: func(a, RegexQ(**{x: regex})),
-                                sep_fields,
-                                RegexQ(),
-                            )
+                            date_fields = [field for field in data.fields if field in opts.datetime_fields]
+                            if not date_fields:
+                                break
+
+                            q = Q()
+                            for date_f in date_fields:
+                                dates_q = cls._get_dates_query(date_f, data.datetime)
+                                if isinstance(dates_q, dict):
+                                    dates_q = RegexQ(**dates_q)
+                                q = func(q, dates_q)
+
                         query = query & q
         except APIError:
             raise
@@ -1394,7 +1438,7 @@ class DbModelMixin(GetMixin, ProperDictMixin, UpdateMixin):
         else:
             items = list(
                 cls.objects(
-                    id__in=ids, company__in=(None, ""), company_origin=company_id
+                    id__in=ids, company="", company_origin=company_id
                 ).only("id")
             )
             update: dict = dict(set__company=company_id, unset__company_origin=1)

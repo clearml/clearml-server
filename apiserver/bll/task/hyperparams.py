@@ -193,7 +193,7 @@ class HyperParams:
         pipeline = [
             {
                 "$match": {
-                    "company": {"$in": [None, "", company_id]},
+                    "company": {"$in": ["", company_id]},
                     "_id": {"$in": task_ids},
                 }
             },

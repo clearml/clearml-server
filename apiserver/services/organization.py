@@ -301,7 +301,7 @@ def download_for_get_all(call: APICall, company, request: DownloadForGetAllReque
                     future = pool.submit(get_fn, page, min(page_size, items_left))
 
                 with StringIO() as fp:
-                    writer = csv.writer(fp)
+                    writer = csv.writer(fp, quoting=csv.QUOTE_NONNUMERIC)
                     if page == 1:
                         fp.write("\ufeff")  # utf-8 signature
                         writer.writerow(field_mappings)

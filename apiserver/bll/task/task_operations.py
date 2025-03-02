@@ -22,7 +22,8 @@ from apiserver.database.model.task.task import (
     TaskStatusMessage,
     ArtifactModes,
     Execution,
-    DEFAULT_LAST_ITERATION, TaskType,
+    DEFAULT_LAST_ITERATION,
+    TaskType,
 )
 from apiserver.database.utils import get_options
 from apiserver.service_repo.auth import Identity
@@ -85,6 +86,7 @@ def archive_task(
                 status_message=status_message,
                 status_reason=status_reason,
                 remove_from_all_queues=True,
+                new_status_for_aborted_task=TaskStatus.stopped,
             )
         except APIError:
             # dequeue may fail if the task was not enqueued
@@ -99,7 +101,9 @@ def archive_task(
         )
 
     if include_pipeline_steps and (
-        step_tasks := _get_pipeline_steps_for_controller_task(task, company_id, only=fields)
+        step_tasks := _get_pipeline_steps_for_controller_task(
+            task, company_id, only=fields
+        )
     ):
         for step in step_tasks:
             archive_task_core(step)
@@ -136,7 +140,9 @@ def unarchive_task(
         )
 
     if include_pipeline_steps and (
-        step_tasks := _get_pipeline_steps_for_controller_task(task, company_id, only=fields)
+        step_tasks := _get_pipeline_steps_for_controller_task(
+            task, company_id, only=fields
+        )
     ):
         for step in step_tasks:
             unarchive_task_core(step)
@@ -204,11 +210,24 @@ def enqueue_task(
     queue_name: str = None,
     validate: bool = False,
     force: bool = False,
+    update_execution_queue: bool = True,
 ) -> Tuple[int, dict]:
     if queue_id and queue_name:
         raise errors.bad_request.ValidationError(
             "Either queue id or queue name should be provided"
         )
+
+    task = get_task_with_write_access(
+        task_id=task_id, company_id=company_id, identity=identity
+    )
+    if not update_execution_queue:
+        if not (
+            task.status == TaskStatus.queued and task.execution and task.execution.queue
+        ):
+            raise errors.bad_request.ValidationError(
+                "Cannot skip setting execution queue for a task "
+                "that is not enqueued or does not have execution queue set"
+            )
 
     if queue_name:
         queue = queue_bll.get_by_name(
@@ -222,23 +241,21 @@ def enqueue_task(
         # try to get default queue
         queue_id = queue_bll.get_default(company_id).id
 
-    task = get_task_with_write_access(
-        task_id=task_id, company_id=company_id, identity=identity
-    )
-
     user_id = identity.user
     if validate:
         TaskBLL.validate(task)
 
+    before_enqueue_status = task.status
+    if task.status == TaskStatus.queued and task.enqueue_status:
+        before_enqueue_status = task.enqueue_status
     res = ChangeStatusRequest(
         task=task,
         new_status=TaskStatus.queued,
         status_reason=status_reason,
         status_message=status_message,
-        allow_same_state_transition=False,
         force=force,
         user_id=user_id,
-    ).execute(enqueue_status=task.status)
+    ).execute(enqueue_status=before_enqueue_status)
 
     try:
         queue_bll.add_task(company_id=company_id, queue_id=queue_id, task_id=task.id)
@@ -255,12 +272,19 @@ def enqueue_task(
         raise
 
     # set the current queue ID in the task
-    if task.execution:
-        Task.objects(id=task_id).update(execution__queue=queue_id, multi=False)
-    else:
-        Task.objects(id=task_id).update(execution=Execution(queue=queue_id), multi=False)
+    if update_execution_queue:
+        if task.execution:
+            Task.objects(id=task_id).update(execution__queue=queue_id, multi=False)
+        else:
+            Task.objects(id=task_id).update(
+                execution=Execution(queue=queue_id), multi=False
+            )
+        nested_set(res, ("fields", "execution.queue"), queue_id)
 
-    nested_set(res, ("fields", "execution.queue"), queue_id)
+    # make sure that the task is not queued in any other queue
+    TaskBLL.remove_task_from_all_queues(
+        company_id=company_id, task_id=task_id, exclude=queue_id
+    )
     return 1, res
 
 
@@ -294,17 +318,13 @@ def delete_task(
     identity: Identity,
     move_to_trash: bool,
     force: bool,
-    return_file_urls: bool,
     delete_output_models: bool,
     status_message: str,
     status_reason: str,
-    delete_external_artifacts: bool,
     include_pipeline_steps: bool,
 ) -> Tuple[int, Task, CleanupResult]:
     user_id = identity.user
-    task = get_task_with_write_access(
-        task_id, company_id=company_id, identity=identity
-    )
+    task = get_task_with_write_access(task_id, company_id=company_id, identity=identity)
 
     if (
         task.status != TaskStatus.created
@@ -318,7 +338,7 @@ def delete_task(
             current=task.status,
         )
 
-    def delete_task_core(task_: Task, force_: bool):
+    def delete_task_core(task_: Task, force_: bool) -> CleanupResult:
         try:
             TaskBLL.dequeue_and_change_status(
                 task_,
@@ -337,9 +357,7 @@ def delete_task(
             user=user_id,
             task=task_,
             force=force_,
-            return_file_urls=return_file_urls,
             delete_output_models=delete_output_models,
-            delete_external_artifacts=delete_external_artifacts,
         )
 
         if move_to_trash:
@@ -353,11 +371,12 @@ def delete_task(
         return res
 
     task_ids = [task.id]
+    cleanup_res = CleanupResult.empty()
     if include_pipeline_steps and (
         step_tasks := _get_pipeline_steps_for_controller_task(task, company_id)
     ):
         for step in step_tasks:
-            delete_task_core(step, True)
+            cleanup_res += delete_task_core(step, True)
             task_ids.append(step.id)
 
     cleanup_res = delete_task_core(task, force)
@@ -373,15 +392,11 @@ def reset_task(
     company_id: str,
     identity: Identity,
     force: bool,
-    return_file_urls: bool,
     delete_output_models: bool,
     clear_all: bool,
-    delete_external_artifacts: bool,
 ) -> Tuple[dict, CleanupResult, dict]:
     user_id = identity.user
-    task = get_task_with_write_access(
-        task_id, company_id=company_id, identity=identity
-    )
+    task = get_task_with_write_access(task_id, company_id=company_id, identity=identity)
 
     if not force and task.status == TaskStatus.published:
         raise errors.bad_request.InvalidTaskStatus(task_id=task.id, status=task.status)
@@ -390,7 +405,9 @@ def reset_task(
     updates = {}
 
     try:
-        dequeued = TaskBLL.dequeue(task, company_id, silent_fail=True)
+        dequeued = TaskBLL.dequeue(
+            task, company_id=company_id, user_id=user_id, silent_fail=True
+        )
     except APIError:
         # dequeue may fail if the task was not enqueued
         pass
@@ -403,9 +420,7 @@ def reset_task(
         task=task,
         force=force,
         update_children=False,
-        return_file_urls=return_file_urls,
         delete_output_models=delete_output_models,
-        delete_external_artifacts=delete_external_artifacts,
     )
 
     updates.update(
@@ -466,9 +481,7 @@ def publish_task(
     status_reason: str = "",
 ) -> dict:
     user_id = identity.user
-    task = get_task_with_write_access(
-        task_id, company_id=company_id, identity=identity
-    )
+    task = get_task_with_write_access(task_id, company_id=company_id, identity=identity)
     if not force:
         validate_status_change(task.status, TaskStatus.published)
 
@@ -566,7 +579,9 @@ def stop_task(
         if set_stopped:
             if is_queued:
                 try:
-                    TaskBLL.dequeue(task_, company_id=company_id, silent_fail=True)
+                    TaskBLL.dequeue(
+                        task_, company_id=company_id, user_id=user_id, silent_fail=True
+                    )
                 except APIError:
                     # dequeue may fail if the task was not enqueued
                     pass
@@ -587,7 +602,9 @@ def stop_task(
         ).execute()
 
     if include_pipeline_steps and (
-        step_tasks := _get_pipeline_steps_for_controller_task(task, company_id, only=fields)
+        step_tasks := _get_pipeline_steps_for_controller_task(
+            task, company_id, only=fields
+        )
     ):
         for step in step_tasks:
             stop_task_core(step, True)

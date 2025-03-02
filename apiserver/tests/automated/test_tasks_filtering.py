@@ -71,12 +71,31 @@ class TestTasksFiltering(TestService):
         ).tasks
         self.assertFalse(set(tasks).issubset({t.id for t in res}))
 
+        # _any_/_all_ queries
+        res = self.api.tasks.get_all_ex(
+            **{"_any_": {"datetime": f">={now.isoformat()}", "fields": ["last_update", "status_changed"]}}
+        ).tasks
+        self.assertTrue(set(tasks).issubset({t.id for t in res}))
+        res = self.api.tasks.get_all_ex(
+            **{"_all_": {"datetime": f">={now.isoformat()}", "fields": ["last_update", "status_changed"]}}
+        ).tasks
+        self.assertFalse(set(tasks).issubset({t.id for t in res}))
+
         # simplified range syntax
         res = self.api.tasks.get_all_ex(last_update=[now.isoformat(), None]).tasks
         self.assertTrue(set(tasks).issubset({t.id for t in res}))
 
         res = self.api.tasks.get_all_ex(
             last_update=[(now - timedelta(seconds=60)).isoformat(), now.isoformat()]
+        ).tasks
+        self.assertFalse(set(tasks).issubset({t.id for t in res}))
+
+        res = self.api.tasks.get_all_ex(
+            **{"_any_": {"datetime": [now.isoformat(), None], "fields": ["last_update", "status_changed"]}}
+        ).tasks
+        self.assertTrue(set(tasks).issubset({t.id for t in res}))
+        res = self.api.tasks.get_all_ex(
+            **{"_all_": {"datetime": [now.isoformat(), None], "fields": ["last_update", "status_changed"]}}
         ).tasks
         self.assertFalse(set(tasks).issubset({t.id for t in res}))
 

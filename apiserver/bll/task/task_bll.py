@@ -39,6 +39,7 @@ from apiserver.database.utils import (
 from apiserver.es_factory import es_factory
 from apiserver.redis_manager import redman
 from apiserver.services.utils import validate_tags, escape_dict_field, escape_dict
+from apiserver.utilities.dicts import nested_set
 from .artifacts import artifacts_prepare_for_save
 from .param_utils import params_prepare_for_save
 from .utils import (
@@ -163,18 +164,36 @@ class TaskBLL:
         input_models: Optional[Sequence[TaskInputModel]] = None,
         validate_references: bool = False,
         new_project_name: str = None,
+        hyperparams_overrides: Optional[dict] = None,
+        configuration_overrides: Optional[dict] = None,
     ) -> Tuple[Task, dict]:
         validate_tags(tags, system_tags)
-        params_dict = {
-            field: value
-            for field, value in (
-                ("hyperparams", hyperparams),
-                ("configuration", configuration),
-            )
-            if value is not None
-        }
+        task: Task = cls.get_by_id(
+            company_id=company_id, task_id=task_id, allow_public=True
+        )
 
-        task = cls.get_by_id(company_id=company_id, task_id=task_id, allow_public=True)
+        params_dict = {}
+        if hyperparams:
+            params_dict["hyperparams"] = hyperparams
+        elif hyperparams_overrides:
+            updated_hyperparams = {
+                sec: {k: value for k, value in sec_data.items()}
+                for sec, sec_data in (task.hyperparams or {}).items()
+            }
+            for section, section_data in hyperparams_overrides.items():
+                for key, value in section_data.items():
+                    nested_set(updated_hyperparams, (section, key), value)
+            params_dict["hyperparams"] = updated_hyperparams
+
+        if configuration:
+            params_dict["configuration"] = configuration
+        elif configuration_overrides:
+            updated_configuration = {
+                k: value for k, value in (task.configuration or {}).items()
+            }
+            for key, value in configuration_overrides.items():
+                updated_configuration[key] = value
+            params_dict["configuration"] = updated_configuration
 
         now = datetime.utcnow()
         if input_models:
@@ -389,7 +408,7 @@ class TaskBLL:
             task's last iteration value.
         :param last_iteration_max: Last reported iteration. Use this to conditionally set a value only
             if the current task's last iteration value is smaller than the provided value.
-        :param last_scalar_values: Last reported metrics summary for scalar events (value, metric, variant).
+        :param last_scalar_events: Last reported metrics summary for scalar events (value, metric, variant).
         :param last_events: Last reported metrics summary (value, metric, event type).
         :param extra_updates: Extra task updates to include in this update call.
         :return:
@@ -439,8 +458,13 @@ class TaskBLL:
         return ret
 
     @staticmethod
-    def remove_task_from_all_queues(company_id: str, task_id: str) -> int:
-        return Queue.objects(company=company_id, entries__task=task_id).update(
+    def remove_task_from_all_queues(
+        company_id: str, task_id: str, exclude: str = None
+    ) -> int:
+        more = {}
+        if exclude:
+            more["id__ne"] = exclude
+        return Queue.objects(company=company_id, entries__task=task_id, **more).update(
             pull__entries__task=task_id, last_update=datetime.utcnow()
         )
 
@@ -454,9 +478,10 @@ class TaskBLL:
         status_reason: str,
         remove_from_all_queues=False,
         new_status=None,
+        new_status_for_aborted_task=None,
     ):
         try:
-            cls.dequeue(task, company_id, silent_fail=True)
+            cls.dequeue(task, company_id=company_id, user_id=user_id, silent_fail=True)
         except APIError:
             # dequeue may fail if the queue was deleted
             pass
@@ -466,6 +491,9 @@ class TaskBLL:
 
         if task.status not in [TaskStatus.queued, TaskStatus.in_progress]:
             return {"updated": 0}
+
+        if new_status_for_aborted_task and task.status == TaskStatus.in_progress:
+            new_status = new_status_for_aborted_task
 
         return ChangeStatusRequest(
             task=task,
@@ -477,7 +505,7 @@ class TaskBLL:
         ).execute(enqueue_status=None)
 
     @classmethod
-    def dequeue(cls, task: Task, company_id: str, silent_fail=False):
+    def dequeue(cls, task: Task, company_id: str, user_id: str, silent_fail=False):
         """
         Dequeue the task from the queue
         :param task: task to dequeue
@@ -504,6 +532,9 @@ class TaskBLL:
 
         return {
             "removed": queue_bll.remove_task(
-                company_id=company_id, queue_id=task.execution.queue, task_id=task.id
+                company_id=company_id,
+                user_id=user_id,
+                queue_id=task.execution.queue,
+                task_id=task.id,
             )
         }

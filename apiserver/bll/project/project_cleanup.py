@@ -8,10 +8,9 @@ from mongoengine import Q
 from apiserver.apierrors import errors
 from apiserver.bll.event import EventBLL
 from apiserver.bll.task.task_cleanup import (
-    collect_debug_image_urls,
-    collect_plot_image_urls,
     TaskUrls,
-    _schedule_for_delete,
+    schedule_for_delete,
+    delete_task_events_and_collect_urls,
 )
 from apiserver.config_repo import config
 from apiserver.database.model import EntityVisibility
@@ -192,7 +191,7 @@ def delete_project(
         )
         event_urls = task_event_urls | model_event_urls
         if delete_external_artifacts:
-            scheduled = _schedule_for_delete(
+            scheduled = schedule_for_delete(
                 task_id=project_id,
                 company=company,
                 user=user,
@@ -206,7 +205,6 @@ def delete_project(
             deleted_models=deleted_models,
             urls=TaskUrls(
                 model_urls=list(model_urls),
-                event_urls=list(event_urls),
                 artifact_urls=list(artifact_urls),
             ),
         )
@@ -243,9 +241,6 @@ def _delete_tasks(
         last_changed_by=user,
     )
 
-    event_urls = collect_debug_image_urls(company, task_ids) | collect_plot_image_urls(
-        company, task_ids
-    )
     artifact_urls = set()
     for task in tasks:
         if task.execution and task.execution.artifacts:
@@ -257,8 +252,11 @@ def _delete_tasks(
                 }
             )
 
-    event_bll.delete_multi_task_events(company, task_ids)
+    event_urls = delete_task_events_and_collect_urls(
+        company=company, task_ids=task_ids, wait_for_delete=False
+    )
     deleted = tasks.delete()
+
     return deleted, event_urls, artifact_urls
 
 
@@ -317,11 +315,10 @@ def _delete_models(
             set__last_changed_by=user,
         )
 
-    event_urls = collect_debug_image_urls(company, model_ids) | collect_plot_image_urls(
-        company, model_ids
-    )
     model_urls = {m.uri for m in models if m.uri}
-
-    event_bll.delete_multi_task_events(company, model_ids, model=True)
+    event_urls = delete_task_events_and_collect_urls(
+        company=company, task_ids=model_ids, model=True, wait_for_delete=False
+    )
     deleted = models.delete()
+
     return deleted, event_urls, model_urls

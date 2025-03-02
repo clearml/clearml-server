@@ -37,6 +37,8 @@ OVERRIDE_QUERY_ENV_KEY = "CLEARML_MONGODB_SERVICE_QUERY"
 class DatabaseEntry(models.Base):
     host = StringField(required=True)
     alias = StringField()
+    name = StringField()
+    db = StringField()
 
 
 class DatabaseFactory:
@@ -78,10 +80,13 @@ class DatabaseFactory:
                 missing.append(key)
                 continue
 
-            entry = cls._create_db_entry(alias=alias, settings=db_entries.get(key))
+            settings = {**db_entries.get(key)}
+            if not any(field in settings for field in ("name", "db")):
+                settings["name"] = key
+            entry = cls._create_db_entry(alias=alias, settings=settings)
 
             if override_connection_string:
-                con_str = f"{override_connection_string.rstrip('/')}/{key}"
+                con_str = override_connection_string
                 log.info(f"Using override mongodb connection string for {alias}: {con_str}")
                 entry.host = con_str
             else:

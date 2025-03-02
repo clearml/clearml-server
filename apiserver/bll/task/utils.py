@@ -144,7 +144,12 @@ state_machine = {
         TaskStatus.publishing,
         TaskStatus.stopped,
     },
-    TaskStatus.failed: {TaskStatus.created, TaskStatus.stopped, TaskStatus.published},
+    TaskStatus.failed: {
+        TaskStatus.created,
+        TaskStatus.stopped,
+        TaskStatus.published,
+        TaskStatus.queued,
+    },
     TaskStatus.publishing: {TaskStatus.published},
     TaskStatus.published: set(),
     TaskStatus.completed: {
@@ -177,7 +182,7 @@ def get_many_tasks_for_writing(
     throw_on_forbidden: bool = True,
 ) -> Sequence[Task]:
     if only:
-        missing = [f for f in ("company", ) if f not in only]
+        missing = [f for f in ("company",) if f not in only]
         if missing:
             only = [*only, *missing]
 
@@ -230,7 +235,7 @@ def get_task_for_update(
     task_id: str,
     identity: Identity,
     allow_all_statuses: bool = False,
-    force: bool = False
+    force: bool = False,
 ) -> Task:
     """
     Loads only task id and return the task only if it is updatable (status == 'created')
@@ -286,13 +291,62 @@ def get_last_metric_updates(
 
     new_metrics = []
 
+    def add_last_metric_mean_update(
+        metric_path: str,
+        metric_count: int,
+        metric_total: float,
+    ):
+        """
+        Update new mean field based on the value in db and new data
+        The count field is updated here too and not with inc__ so that
+        it will not get updated in the db earlier than the corresponding mean
+        """
+        metric_path = metric_path.replace("__", ".")
+        mean_value_field = f"{metric_path}.mean_value"
+        count_field = f"{metric_path}.count"
+        raw_updates[mean_value_field] = {
+            "$round": [
+                {
+                    "$divide": [
+                        {
+                            "$add": [
+                                {
+                                    "$multiply": [
+                                        {"$ifNull": [f"${mean_value_field}", 0]},
+                                        {"$ifNull": [f"${count_field}", 0]},
+                                    ]
+                                },
+                                metric_total,
+                            ]
+                        },
+                        {
+                            "$add": [
+                                {"$ifNull": [f"${count_field}", 0]},
+                                metric_count,
+                            ]
+                        },
+                    ]
+                },
+                2,
+            ]
+        }
+        raw_updates[count_field] = {
+            "$add": [
+                {"$ifNull": [f"${count_field}", 0]},
+                metric_count,
+            ]
+        }
+
     def add_last_metric_conditional_update(
-        metric_path: str, metric_value, iter_value: int, is_min: bool
+        metric_path: str, metric_value, iter_value: int, is_min: bool, is_first: bool
     ):
         """
         Build an aggregation for an atomic update of the min or max value and the corresponding iteration
         """
-        if is_min:
+        if is_first:
+            field_prefix = "first"
+            op = None
+        elif is_min:
             field_prefix = "min"
             op = "$gt"
         else:
@@ -300,18 +354,23 @@ def get_last_metric_updates(
             op = "$lt"
 
         value_field = f"{metric_path}__{field_prefix}_value".replace("__", ".")
-        condition = {
-            "$or": [
-                {"$lte": [f"${value_field}", None]},
-                {op: [f"${value_field}", metric_value]},
-            ]
-        }
+        exists = {"$lte": [f"${value_field}", None]}
+        if op:
+            condition = {
+                "$or": [
+                    exists,
+                    {op: [f"${value_field}", metric_value]},
+                ]
+            }
+        else:
+            condition = exists
+
         raw_updates[value_field] = {
             "$cond": [condition, metric_value, f"${value_field}"]
         }
 
-        value_iteration_field = f"{metric_path}__{field_prefix}_value_iteration".replace(
-            "__", "."
+        value_iteration_field = (
+            f"{metric_path}__{field_prefix}_value_iteration".replace("__", ".")
         )
         raw_updates[value_iteration_field] = {
             "$cond": [condition, iter_value, f"${value_iteration_field}"]
@@ -328,15 +387,25 @@ def get_last_metric_updates(
             new_metrics.append(metric)
             path = f"last_metrics__{metric_key}__{variant_key}"
             for key, value in variant_data.items():
-                if key in ("min_value", "max_value"):
+                if key in ("min_value", "max_value", "first_value"):
                     add_last_metric_conditional_update(
                         metric_path=path,
                         metric_value=value,
                         iter_value=variant_data.get(f"{key}_iter", 0),
                         is_min=(key == "min_value"),
+                        is_first=(key == "first_value"),
                     )
-                elif key in ("metric", "variant", "value"):
+                elif key in ("metric", "variant", "value", "x_axis_label"):
                     extra_updates[f"set__{path}__{key}"] = value
+
+            count = variant_data.get("count")
+            total = variant_data.get("total")
+            if count is not None and total is not None:
+                add_last_metric_mean_update(
+                    metric_path=path,
+                    metric_count=count,
+                    metric_total=total,
+                )
 
     if new_metrics:
         extra_updates["add_to_set__unique_metrics"] = new_metrics

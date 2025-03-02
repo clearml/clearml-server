@@ -1,0 +1,79 @@
+{
+  "index_patterns": "serving_stats_*",
+  "template": {
+    "settings": {
+      "number_of_replicas": 0,
+      "number_of_shards": 1
+    },
+    "mappings": {
+      "_source": {
+        "enabled": true
+      },
+      "properties": {
+        "timestamp": {
+          "type": "date"
+        },
+        "container_id": {
+          "type": "keyword"
+        },
+        "company_id": {
+          "type": "keyword"
+        },
+        "endpoint_url": {
+          "type": "keyword"
+        },
+        "requests_num": {
+          "type": "integer"
+        },
+        "requests_min": {
+          "type": "float"
+        },
+        "uptime_sec": {
+          "type": "integer"
+        },
+        "latency_ms": {
+          "type": "integer"
+        },
+        "cpu_usage": {
+          "type": "float"
+        },
+        "cpu_num": {
+          "type": "integer"
+        },
+        "gpu_usage": {
+          "type": "float"
+        },
+        "gpu_num": {
+          "type": "integer"
+        },
+        "memory_used": {
+          "type": "float"
+        },
+        "memory_free": {
+          "type": "float"
+        },
+        "memory_total": {
+          "type": "float"
+        },
+        "gpu_memory_used": {
+          "type": "float"
+        },
+        "gpu_memory_free": {
+          "type": "float"
+        },
+        "gpu_memory_total": {
+          "type": "float"
+        },
+        "disk_free_home": {
+          "type": "float"
+        },
+        "network_rx": {
+          "type": "float"
+        },
+        "network_tx": {
+          "type": "float"
+        }
+      }
+    }
+  }
+}

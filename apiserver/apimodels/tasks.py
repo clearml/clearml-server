@@ -109,6 +109,7 @@ class EnqueueRequest(UpdateRequest):
     queue = StringField()
     queue_name = StringField()
     verify_watched_queue = BoolField(default=False)
+    update_execution_queue = BoolField(default=True)
 
 
 class DeleteRequest(UpdateRequest):

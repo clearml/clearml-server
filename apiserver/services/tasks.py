@@ -1,9 +1,9 @@
+import itertools
 from copy import deepcopy
 from datetime import datetime
 from functools import partial
-from typing import Sequence, Union, Tuple
+from typing import Sequence, Union, Tuple, Mapping
 
-import attr
 from mongoengine import EmbeddedDocument, Q
 from mongoengine.queryset.transform import COMPARISON_OPERATORS
 from pymongo import UpdateOne
@@ -80,6 +80,11 @@ from apiserver.bll.task import (
     TaskBLL,
     ChangeStatusRequest,
 )
+from apiserver.bll.task.task_cleanup import (
+    delete_task_events_and_collect_urls,
+    schedule_for_delete,
+    CleanupResult,
+)
 from apiserver.bll.task.artifacts import (
     artifacts_prepare_for_save,
     artifacts_unprepare_from_saved,
@@ -109,6 +114,7 @@ from apiserver.bll.task.utils import (
     get_task_with_write_access,
 )
 from apiserver.bll.util import run_batch_operation, update_project_time
+from apiserver.config_repo import config
 from apiserver.database.errors import translate_errors_context
 from apiserver.database.model import EntityVisibility
 from apiserver.database.model.project import Project
@@ -295,9 +301,7 @@ def get_types(call: APICall, company_id, request: GetTypesRequest):
     }
 
 
-@endpoint(
-    "tasks.stop", response_data_model=UpdateResponse
-)
+@endpoint("tasks.stop", response_data_model=UpdateResponse)
 def stop(call: APICall, company_id, request: StopRequest):
     """
     stop
@@ -919,6 +923,11 @@ def delete_configuration(
     response_data_model=EnqueueResponse,
 )
 def enqueue(call: APICall, company_id, request: EnqueueRequest):
+    if request.verify_watched_queue and not request.update_execution_queue:
+        raise errors.bad_request.ValidationError(
+            "verify_watched_queue cannot be used with update_execution_queue=False"
+        )
+
     queued, res = enqueue_task(
         task_id=request.task,
         company_id=company_id,
@@ -928,6 +937,7 @@ def enqueue(call: APICall, company_id, request: EnqueueRequest):
         status_reason=request.status_reason,
         queue_name=request.queue_name,
         force=request.force,
+        update_execution_queue=request.update_execution_queue,
     )
     if request.verify_watched_queue:
         res_queue = nested_get(res, ("fields", "execution.queue"))
@@ -1016,21 +1026,98 @@ def dequeue_many(call: APICall, company_id, request: DequeueManyRequest):
     )
 
 
+def _delete_task_events(
+    company_id: str,
+    user_id: str,
+    tasks: Mapping[str, CleanupResult],
+    delete_external_artifacts: bool,
+    sync_delete: bool,
+):
+    if not tasks:
+        return
+    task_ids = list(tasks)
+    deleted_model_ids = set(
+        itertools.chain.from_iterable(
+            cr.deleted_model_ids for cr in tasks.values() if cr.deleted_model_ids
+        )
+    )
+
+    delete_external_artifacts = delete_external_artifacts and config.get(
+        "services.async_urls_delete.enabled", True
+    )
+    if delete_external_artifacts:
+        for t_id, cleanup_res in tasks.items():
+            urls = set(cleanup_res.urls.model_urls) | set(
+                cleanup_res.urls.artifact_urls
+            )
+            if urls:
+                schedule_for_delete(
+                    task_id=t_id,
+                    company=company_id,
+                    user=user_id,
+                    urls=urls,
+                    can_delete_folders=False,
+                )
+
+        event_urls = delete_task_events_and_collect_urls(
+            company=company_id,
+            task_ids=task_ids,
+            wait_for_delete=sync_delete,
+        )
+        if deleted_model_ids:
+            event_urls.update(
+                delete_task_events_and_collect_urls(
+                    company=company_id,
+                    task_ids=list(deleted_model_ids),
+                    model=True,
+                    wait_for_delete=sync_delete,
+                )
+            )
+
+        if event_urls:
+            schedule_for_delete(
+                task_id=task_ids[0],
+                company=company_id,
+                user=user_id,
+                urls=event_urls,
+                can_delete_folders=False,
+            )
+    else:
+        event_bll.delete_task_events(company_id, task_ids, wait_for_delete=sync_delete)
+        if deleted_model_ids:
+            event_bll.delete_task_events(
+                company_id,
+                list(deleted_model_ids),
+                model=True,
+                wait_for_delete=sync_delete,
+            )
+
+
 @endpoint(
     "tasks.reset", request_data_model=ResetRequest, response_data_model=ResetResponse
 )
 def reset(call: APICall, company_id, request: ResetRequest):
+    task_id = request.task
     dequeued, cleanup_res, updates = reset_task(
-        task_id=request.task,
+        task_id=task_id,
         company_id=company_id,
         identity=call.identity,
         force=request.force,
-        return_file_urls=request.return_file_urls,
         delete_output_models=request.delete_output_models,
         clear_all=request.clear_all,
-        delete_external_artifacts=request.delete_external_artifacts,
     )
-    res = ResetResponse(**updates, **attr.asdict(cleanup_res), dequeued=dequeued)
+    _delete_task_events(
+        company_id=company_id,
+        user_id=call.identity.user,
+        tasks={task_id: cleanup_res},
+        delete_external_artifacts=request.delete_external_artifacts,
+        sync_delete=True,
+    )
+    res = ResetResponse(
+        **updates,
+        **cleanup_res.to_res_dict(request.return_file_urls),
+        dequeued=dequeued,
+    )
     call.result.data_model = res
 
 
@@ -1046,24 +1133,32 @@ def reset_many(call: APICall, company_id, request: ResetManyRequest):
             company_id=company_id,
             identity=call.identity,
             force=request.force,
-            return_file_urls=request.return_file_urls,
             delete_output_models=request.delete_output_models,
             clear_all=request.clear_all,
-            delete_external_artifacts=request.delete_external_artifacts,
         ),
         ids=request.ids,
     )
 
     succeeded = []
+    tasks = {}
     for _id, (dequeued, cleanup, res) in results:
+        tasks[_id] = cleanup
         succeeded.append(
             ResetBatchItem(
                 id=_id,
                 dequeued=bool(dequeued.get("removed")) if dequeued else False,
-                **attr.asdict(cleanup),
+                **cleanup.to_res_dict(request.return_file_urls),
                 **res,
             )
         )
+
+    _delete_task_events(
+        company_id=company_id,
+        user_id=call.identity.user,
+        tasks=tasks,
+        delete_external_artifacts=request.delete_external_artifacts,
+        sync_delete=False,
+    )
 
     call.result.data_model = ResetManyResponse(
         succeeded=succeeded,
@@ -1160,16 +1255,23 @@ def delete(call: APICall, company_id, request: DeleteRequest):
         identity=call.identity,
         move_to_trash=request.move_to_trash,
         force=request.force,
-        return_file_urls=request.return_file_urls,
         delete_output_models=request.delete_output_models,
         status_message=request.status_message,
         status_reason=request.status_reason,
-        delete_external_artifacts=request.delete_external_artifacts,
         include_pipeline_steps=request.include_pipeline_steps,
     )
     if deleted:
+        _delete_task_events(
+            company_id=company_id,
+            user_id=call.identity.user,
+            tasks={request.task: cleanup_res},
+            delete_external_artifacts=request.delete_external_artifacts,
+            sync_delete=True,
+        )
         _reset_cached_tags(company_id, projects=[task.project] if task.project else [])
-    call.result.data = dict(deleted=bool(deleted), **attr.asdict(cleanup_res))
+    call.result.data = dict(
+        deleted=bool(deleted), **cleanup_res.to_res_dict(request.return_file_urls)
+    )
 
 
 @endpoint("tasks.delete_many", request_data_model=DeleteManyRequest)
@@ -1181,25 +1283,42 @@ def delete_many(call: APICall, company_id, request: DeleteManyRequest):
             identity=call.identity,
             move_to_trash=request.move_to_trash,
             force=request.force,
-            return_file_urls=request.return_file_urls,
             delete_output_models=request.delete_output_models,
             status_message=request.status_message,
             status_reason=request.status_reason,
-            delete_external_artifacts=request.delete_external_artifacts,
             include_pipeline_steps=request.include_pipeline_steps,
         ),
         ids=request.ids,
     )
 
+    succeeded = []
+    tasks = {}
     if results:
-        projects = set(task.project for _, (_, task, _) in results)
+        projects = set()
+        for _id, (deleted, task, cleanup_res) in results:
+            if deleted:
+                projects.add(task.project)
+                tasks[_id] = cleanup_res
+            succeeded.append(
+                dict(
+                    id=_id,
+                    deleted=bool(deleted),
+                    **cleanup_res.to_res_dict(request.return_file_urls),
+                )
+            )
+
+        if tasks:
+            _delete_task_events(
+                company_id=company_id,
+                user_id=call.identity.user,
+                tasks=tasks,
+                delete_external_artifacts=request.delete_external_artifacts,
+                sync_delete=False,
+            )
         _reset_cached_tags(company_id, projects=list(projects))
 
     call.result.data = dict(
-        succeeded=[
-            dict(id=_id, deleted=bool(deleted), **attr.asdict(cleanup_res))
-            for _id, (deleted, _, cleanup_res) in results
-        ],
+        succeeded=succeeded,
         failed=failures,
     )
 
@@ -1359,10 +1478,11 @@ def move(call: APICall, company_id: str, request: MoveRequest):
             "project or project_name is required"
         )
 
-    _assert_writable_tasks(company_id, call.identity, request.ids)
-    updated_projects = set(
-        t.project for t in Task.objects(id__in=request.ids).only("project") if t.project
+    tasks = _assert_writable_tasks(
+        company_id, call.identity, request.ids, only=("id", "project")
     )
+    updated_projects = set(t.project for t in tasks if t.project)
+
     project_id = project_bll.move_under_project(
         entity_cls=Task,
         user=call.identity.user,
@@ -1385,6 +1505,7 @@ def update_tags(call: APICall, company_id: str, request: UpdateTagsRequest):
     return {
         "updated": org_bll.edit_entity_tags(
             company_id=company_id,
+            user_id=call.identity.user,
             entity_cls=Task,
             entity_ids=request.ids,
             add_tags=request.add_tags,

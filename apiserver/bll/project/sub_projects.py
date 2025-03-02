@@ -2,6 +2,8 @@ import itertools
 from datetime import datetime
 from typing import Tuple, Optional, Sequence, Mapping
 
+from boltons.iterutils import first
+
 from apiserver import database
 from apiserver.apierrors import errors
 from apiserver.database.model import EntityVisibility
@@ -96,10 +98,21 @@ def _get_writable_project_from_name(
     """
     Return a project from name. If the project not found then return None
     """
-    qs = Project.objects(company=company, name=name)
+    qs = Project.objects(company__in=[company, ""], name=name)
     if _only:
+        if "company" not in _only:
+            _only = ["company", *_only]
         qs = qs.only(*_only)
-    return qs.first()
+    projects = list(qs)
+
+    if not projects:
+        return
+
+    project = first(p for p in projects if p.company == company)
+    if not project:
+        raise errors.bad_request.PublicProjectExists(name=name)
+
+    return project
 
 
 ProjectsChildren = Mapping[str, Sequence[Project]]

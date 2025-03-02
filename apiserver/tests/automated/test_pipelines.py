@@ -5,6 +5,18 @@ from apiserver.tests.automated import TestService
 
 
 class TestPipelines(TestService):
+    task_hyperparams = {
+        "properties":
+            {
+                "version": {
+                    "section": "properties",
+                    "name": "version",
+                    "type": "str",
+                    "value": "3.2"
+                }
+            }
+    }
+
     def test_controller_operations(self):
         task_name = "pipelines test"
         project, task = self._temp_project_and_task(name=task_name)
@@ -82,14 +94,17 @@ class TestPipelines(TestService):
         self.assertEqual(pipeline.status, "queued")
         self.assertEqual(pipeline.project.id, project)
         self.assertEqual(
-            pipeline.hyperparams.Args,
+            pipeline.hyperparams,
             {
-                a["name"]: {
-                    "section": "Args",
-                    "name": a["name"],
-                    "value": a["value"],
-                }
-                for a in args
+                "Args": {
+                    a["name"]: {
+                        "section": "Args",
+                        "name": a["name"],
+                        "value": a["value"],
+                    }
+                    for a in args
+                },
+                **self.task_hyperparams,
             },
         )
 
@@ -124,6 +139,7 @@ class TestPipelines(TestService):
                 type="controller",
                 project=project,
                 system_tags=["pipeline"],
+                hyperparams=self.task_hyperparams,
             ),
         )
 

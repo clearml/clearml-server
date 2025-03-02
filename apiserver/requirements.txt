@@ -6,7 +6,7 @@ boto3>=1.26
 boto3-stubs[s3]>=1.26
 clearml>=1.10.3
 dpath>=1.4.2,<2.0
-elasticsearch==8.12.0
+elasticsearch==8.17.0
 fastjsonschema>=2.8
 flask-compress>=1.4.0
 flask-cors>=3.0.5
@@ -19,15 +19,15 @@ jinja2
 jsonmodels>=2.3
 jsonschema>=2.6.0
 luqum>=0.10.0
-mongoengine==0.27.0
+mongoengine==0.29.1
 nested_dict>=1.61
 packaging==20.3
 psutil>=5.6.5
 pyhocon>=0.3.35r
 pyjwt>=2.4.0
-pymongo==4.6.3
+pymongo==4.10.1
 python-rapidjson>=0.6.3
-redis>=4.5.4,<5
+redis==5.2.1
 requests>=2.13.0
 semantic_version>=2.8.3,<3
 setuptools>=65.5.1

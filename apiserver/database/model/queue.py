@@ -47,6 +47,7 @@ class Queue(DbModelMixin, Document):
     name = StrippedStringField(
         required=True, unique_with="company", min_length=3, user_set_allowed=True
     )
+    display_name = StringField(user_set_allowed=True)
     company = StringField(required=True, reference_field=Company)
     created = DateTimeField(required=True)
     tags = SafeSortedListField(

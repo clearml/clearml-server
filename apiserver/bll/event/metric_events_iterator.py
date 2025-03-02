@@ -384,7 +384,8 @@ class MetricEventsIterator:
                                     "aggs": {
                                         "events": {
                                             "top_hits": {
-                                                "sort": self._get_same_variant_events_order()
+                                                "sort": self._get_same_variant_events_order(),
+                                                "size": 1,
                                             }
                                         }
                                     },

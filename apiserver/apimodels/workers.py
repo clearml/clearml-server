@@ -86,6 +86,7 @@ class CurrentTaskEntry(IdNameEntry):
 
 
 class QueueEntry(IdNameEntry):
+    display_name = StringField()
     next_task = EmbeddedField(IdNameEntry)
     num_tasks = IntField()
 

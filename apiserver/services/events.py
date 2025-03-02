@@ -42,6 +42,7 @@ from apiserver.apimodels.events import (
     LegacyMultiTaskEventsRequest,
 )
 from apiserver.bll.event import EventBLL
+from apiserver.bll.event.event_bll import LOCKED_TASK_STATUSES
 from apiserver.bll.event.event_common import EventType, MetricVariants, TaskCompanies
 from apiserver.bll.event.events_iterator import Scroll
 from apiserver.bll.event.scalar_key import ScalarKeyEnum, ScalarKey
@@ -52,6 +53,7 @@ from apiserver.config_repo import config
 from apiserver.database.model.model import Model
 from apiserver.database.model.task.task import Task
 from apiserver.service_repo import APICall, endpoint
+from apiserver.service_repo.auth import Identity
 from apiserver.utilities import json, extract_properties_to_lists
 
 task_bll = TaskBLL()
@@ -488,6 +490,7 @@ def scalar_metrics_iter_histogram(
         samples=request.samples,
         key=request.key,
         metric_variants=_get_metric_variants_from_request(request.metrics),
+        model_events=request.model_events,
     )
     call.result.data = metrics
 
@@ -538,12 +541,13 @@ def multi_task_scalar_metrics_iter_histogram(
             samples=request.samples,
             key=request.key,
             metric_variants=_get_metric_variants_from_request(request.metrics),
+            model_events=request.model_events,
         )
     )
 
 
 def _get_single_value_metrics_response(
-    companies: TaskCompanies, value_metrics: Mapping[str, dict]
+    companies: TaskCompanies, value_metrics: Mapping[str, Sequence[dict]]
 ) -> Sequence[dict]:
     task_names = {
         task.id: task.name for task in itertools.chain.from_iterable(companies.values())
@@ -1001,19 +1005,50 @@ def get_multi_task_metrics(call: APICall, company_id, request: MultiTaskMetricsR
     call.result.data = {"metrics": sorted(res, key=itemgetter("metric"))}
 
 
+def _validate_task_for_events_update(
+    company_id: str, task_id: str, identity: Identity, allow_locked: bool
+):
+    task = get_task_with_write_access(
+        task_id=task_id,
+        company_id=company_id,
+        identity=identity,
+        only=("id", "status"),
+    )
+    if not allow_locked and task.status in LOCKED_TASK_STATUSES:
+        raise errors.bad_request.InvalidTaskId(
+            replacement_msg="Cannot update events for a published task",
+            company=company_id,
+            id=task_id,
+        )
+
+
 @endpoint("events.delete_for_task")
 def delete_for_task(call, company_id, request: TaskRequest):
     task_id = request.task
     allow_locked = call.data.get("allow_locked", False)
 
-    get_task_with_write_access(
-        task_id=task_id, company_id=company_id, identity=call.identity, only=("id",)
+    _validate_task_for_events_update(
+        company_id=company_id,
+        task_id=task_id,
+        identity=call.identity,
+        allow_locked=allow_locked,
     )
+
     call.result.data = dict(
-        deleted=event_bll.delete_task_events(
-            company_id, task_id, allow_locked=allow_locked
-        )
+        deleted=event_bll.delete_task_events(company_id, task_id, wait_for_delete=True)
     )
+
+
+def _validate_model_for_events_update(
+    company_id: str, model_id: str, allow_locked: bool
+):
+    model = model_bll.assert_exists(company_id, model_id, only=("id", "ready"))[0]
+    if not allow_locked and model.ready:
+        raise errors.bad_request.InvalidModelId(
+            replacement_msg="Cannot update events for a published model",
+            company=company_id,
+            id=model_id,
+        )
 
 
 @endpoint("events.delete_for_model")
@@ -1021,10 +1056,13 @@ def delete_for_model(call: APICall, company_id: str, request: ModelRequest):
     model_id = request.model
     allow_locked = call.data.get("allow_locked", False)
 
-    model_bll.assert_exists(company_id, model_id, return_models=False)
+    _validate_model_for_events_update(
+        company_id=company_id, model_id=model_id, allow_locked=allow_locked
+    )
+
     call.result.data = dict(
         deleted=event_bll.delete_task_events(
-            company_id, model_id, allow_locked=allow_locked, model=True
+            company_id, model_id, model=True, wait_for_delete=True
         )
     )
 
@@ -1033,14 +1071,17 @@ def delete_for_model(call: APICall, company_id: str, request: ModelRequest):
 def clear_task_log(call: APICall, company_id: str, request: ClearTaskLogRequest):
     task_id = request.task
 
-    get_task_with_write_access(
-        task_id=task_id, company_id=company_id, identity=call.identity, only=("id",)
+    _validate_task_for_events_update(
+        company_id=company_id,
+        task_id=task_id,
+        identity=call.identity,
+        allow_locked=request.allow_locked,
     )
+
     call.result.data = dict(
         deleted=event_bll.clear_task_log(
             company_id=company_id,
             task_id=task_id,
-            allow_locked=request.allow_locked,
             threshold_sec=request.threshold_sec,
             exclude_metrics=request.exclude_metrics,
             include_metrics=request.include_metrics,

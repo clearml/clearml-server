@@ -6,7 +6,6 @@ from redis import Redis
 
 from apiserver.config_repo import config
 from apiserver.bll.project import project_ids_with_children
-from apiserver.database.model import EntityVisibility
 from apiserver.database.model.base import GetMixin
 from apiserver.database.model.model import Model
 from apiserver.database.model.task.task import Task
@@ -43,8 +42,8 @@ class _TagsCache:
                     query &= GetMixin.get_list_field_query(name, vals)
         if project:
             query &= Q(project__in=project_ids_with_children([project]))
-        else:
-            query &= Q(system_tags__nin=[EntityVisibility.hidden.value])
+        # else:
+        #     query &= Q(system_tags__nin=[EntityVisibility.hidden.value])
 
         return self.db_cls.objects(query).distinct(field)
 

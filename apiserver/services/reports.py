@@ -282,6 +282,7 @@ def get_task_data(call: APICall, company_id, request: GetTasksDataRequest):
             metric_variants=_get_metric_variants_from_request(
                 request.scalar_metrics_iter_histogram.metrics
             ),
+            model_events=request.model_events,
         )
 
     if request.single_value_metrics:

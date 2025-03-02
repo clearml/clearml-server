@@ -121,8 +121,8 @@ def init_cls_from_base(cls, instance):
     )
 
 
-def get_company_or_none_constraint(company=None):
-    return Q(company__in=(company, None, "")) | Q(company__exists=False)
+def get_company_or_none_constraint(company=""):
+    return Q(company__in=list({company, ""}))
 
 
 def field_does_not_exist(field: str, empty_value=None, is_list=False) -> Q:

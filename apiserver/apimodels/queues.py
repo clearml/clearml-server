@@ -17,6 +17,7 @@ class GetDefaultResp(Base):
 
 class CreateRequest(Base):
     name = StringField(required=True)
+    display_name = StringField()
     tags = ListField(items_types=[str])
     system_tags = ListField(items_types=[str])
     metadata = DictField(value_types=[MetadataItem])
@@ -47,6 +48,7 @@ class DeleteRequest(QueueRequest):
 
 class UpdateRequest(QueueRequest):
     name = StringField()
+    display_name = StringField()
     tags = ListField(items_types=[str])
     system_tags = ListField(items_types=[str])
     metadata = DictField(value_types=[MetadataItem])
@@ -54,6 +56,14 @@ class UpdateRequest(QueueRequest):
 
 class TaskRequest(QueueRequest):
     task = StringField(required=True)
+
+
+class RemoveTaskRequest(TaskRequest):
+    update_task_status = BoolField(default=False)
+
+
+class AddTaskRequest(TaskRequest):
+    update_execution_queue = BoolField(default=True)
 
 
 class MoveTaskRequest(TaskRequest):

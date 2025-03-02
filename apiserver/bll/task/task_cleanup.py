@@ -31,8 +31,8 @@ event_bll = EventBLL()
 @attr.s(auto_attribs=True)
 class TaskUrls:
     model_urls: Sequence[str]
-    event_urls: Sequence[str]
     artifact_urls: Sequence[str]
+    event_urls: Sequence[str] = []  # left here is in order not to break the api
 
     def __add__(self, other: "TaskUrls"):
         if not other:
@@ -40,7 +40,6 @@ class TaskUrls:
 
         return TaskUrls(
             model_urls=list(set(self.model_urls) | set(other.model_urls)),
-            event_urls=list(set(self.event_urls) | set(other.event_urls)),
             artifact_urls=list(set(self.artifact_urls) | set(other.artifact_urls)),
         )
 
@@ -54,7 +53,22 @@ class CleanupResult:
     updated_children: int
     updated_models: int
     deleted_models: int
+    deleted_model_ids: Set[str]
     urls: TaskUrls = None
+
+    def to_res_dict(self, return_file_urls: bool) -> dict:
+        remove_fields = ["deleted_model_ids"]
+        if not return_file_urls:
+            remove_fields.append("urls")
+
+        # noinspection PyTypeChecker
+        res = attr.asdict(
+            self, filter=lambda attrib, value: attrib.name not in remove_fields
+        )
+        if not return_file_urls:
+            res["urls"] = None
+
+        return res
 
     def __add__(self, other: "CleanupResult"):
         if not other:
@@ -65,6 +79,16 @@ class CleanupResult:
             updated_models=self.updated_models + other.updated_models,
             deleted_models=self.deleted_models + other.deleted_models,
             urls=self.urls + other.urls if self.urls else other.urls,
+            deleted_model_ids=self.deleted_model_ids | other.deleted_model_ids,
+        )
+
+    @staticmethod
+    def empty():
+        return CleanupResult(
+            updated_children=0,
+            updated_models=0,
+            deleted_models=0,
+            deleted_model_ids=set(),
         )
 
 
@@ -130,7 +154,7 @@ supported_storage_types.update(
 )
 
 
-def _schedule_for_delete(
+def schedule_for_delete(
     company: str,
     user: str,
     task_id: str,
@@ -197,15 +221,27 @@ def _schedule_for_delete(
     return processed_urls
 
 
+def delete_task_events_and_collect_urls(
+    company: str, task_ids: Sequence[str], wait_for_delete: bool, model=False
+) -> Set[str]:
+    event_urls = collect_debug_image_urls(company, task_ids) | collect_plot_image_urls(
+        company, task_ids
+    )
+
+    event_bll.delete_task_events(
+        company, task_ids, model=model, wait_for_delete=wait_for_delete
+    )
+
+    return event_urls
+
+
 def cleanup_task(
     company: str,
     user: str,
     task: Task,
     force: bool = False,
     update_children=True,
-    return_file_urls=False,
     delete_output_models=True,
-    delete_external_artifacts=True,
 ) -> CleanupResult:
     """
     Validate task deletion and delete/modify all its output.
@@ -216,22 +252,16 @@ def cleanup_task(
     published_models, draft_models, in_use_model_ids = verify_task_children_and_ouptuts(
         task, force
     )
-    delete_external_artifacts = delete_external_artifacts and config.get(
-        "services.async_urls_delete.enabled", True
-    )
-    event_urls, artifact_urls, model_urls = set(), set(), set()
-    if return_file_urls or delete_external_artifacts:
-        event_urls = collect_debug_image_urls(task.company, task.id)
-        event_urls.update(collect_plot_image_urls(task.company, task.id))
-        if task.execution and task.execution.artifacts:
-            artifact_urls = {
-                a.uri
-                for a in task.execution.artifacts.values()
-                if a.mode == ArtifactModes.output and a.uri
-            }
-        model_urls = {
-            m.uri for m in draft_models if m.uri and m.id not in in_use_model_ids
+    artifact_urls = (
+        {
+            a.uri
+            for a in task.execution.artifacts.values()
+            if a.mode == ArtifactModes.output and a.uri
         }
+        if task.execution and task.execution.artifacts
+        else {}
+    )
+    model_urls = {m.uri for m in draft_models if m.uri and m.id not in in_use_model_ids}
 
     deleted_task_id = f"{deleted_prefix}{task.id}"
     updated_children = 0
@@ -245,22 +275,15 @@ def cleanup_task(
 
     deleted_models = 0
     updated_models = 0
+    deleted_model_ids = set()
     for models, allow_delete in ((draft_models, True), (published_models, False)):
         if not models:
             continue
         if delete_output_models and allow_delete:
             model_ids = list({m.id for m in models if m.id not in in_use_model_ids})
             if model_ids:
-                if return_file_urls or delete_external_artifacts:
-                    event_urls.update(collect_debug_image_urls(task.company, model_ids))
-                    event_urls.update(collect_plot_image_urls(task.company, model_ids))
-
-                event_bll.delete_multi_task_events(
-                    task.company,
-                    model_ids,
-                    model=True,
-                )
                 deleted_models += Model.objects(id__in=model_ids).delete()
+                deleted_model_ids.update(model_ids)
 
             if in_use_model_ids:
                 Model.objects(id__in=list(in_use_model_ids)).update(
@@ -283,30 +306,15 @@ def cleanup_task(
                 set__last_changed_by=user,
             )
 
-    event_bll.delete_task_events(task.company, task.id, allow_locked=force)
-
-    if delete_external_artifacts:
-        scheduled = _schedule_for_delete(
-            task_id=task.id,
-            company=company,
-            user=user,
-            urls=event_urls | model_urls | artifact_urls,
-            can_delete_folders=not in_use_model_ids and not published_models,
-        )
-        for urls in (event_urls, model_urls, artifact_urls):
-            urls.difference_update(scheduled)
-
     return CleanupResult(
         deleted_models=deleted_models,
         updated_children=updated_children,
         updated_models=updated_models,
         urls=TaskUrls(
-            event_urls=list(event_urls),
             artifact_urls=list(artifact_urls),
             model_urls=list(model_urls),
-        )
-        if return_file_urls
-        else None,
+        ),
+        deleted_model_ids=deleted_model_ids,
     )
 
 

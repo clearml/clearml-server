@@ -41,6 +41,7 @@ from .sub_projects import (
     _ids_with_parents,
     _get_project_depth,
     ProjectsChildren,
+    _get_writable_project_from_name,
 )
 
 log = config.logger(__file__)
@@ -169,6 +170,7 @@ class ProjectBLL:
 
         now = datetime.utcnow()
         affected = set()
+        p: Project
         for p in filter(None, (old_parent, new_parent)):
             p.update(last_update=now)
             affected.update({p.id, *(p.path or [])})
@@ -183,6 +185,7 @@ class ProjectBLL:
 
         new_name = fields.pop("name", None)
         if new_name:
+            # noinspection PyTypeChecker
             new_name, new_location = _validate_project_name(new_name)
             old_name, old_location = _validate_project_name(project.name)
             if new_location != old_location:
@@ -225,6 +228,18 @@ class ProjectBLL:
             raise errors.bad_request.ProjectPathExceedsMax(max_depth=max_depth)
 
         name, location = _validate_project_name(name)
+
+        existing = _get_writable_project_from_name(
+            company=company,
+            name=name,
+        )
+        if existing:
+            raise errors.bad_request.ExpectedUniqueData(
+                replacement_msg="Project with the same name already exists",
+                name=name,
+                company=company,
+            )
+
         now = datetime.utcnow()
         project = Project(
             id=database.utils.id(),
@@ -810,7 +825,7 @@ class ProjectBLL:
         }
 
         def sum_runtime(
-            a: Mapping[str, Mapping], b: Mapping[str, Mapping]
+            a: Mapping[str, dict], b: Mapping[str, dict]
         ) -> Dict[str, dict]:
             return {
                 section: a.get(section, 0) + b.get(section, 0)
@@ -1015,8 +1030,8 @@ class ProjectBLL:
             if include_subprojects:
                 projects = _ids_with_children(projects)
             query &= Q(project__in=projects)
-        else:
-            query &= Q(system_tags__nin=[EntityVisibility.hidden.value])
+        # else:
+        #     query &= Q(system_tags__nin=[EntityVisibility.hidden.value])
 
         if state == EntityVisibility.archived:
             query &= Q(system_tags__in=[EntityVisibility.archived.value])
@@ -1046,7 +1061,7 @@ class ProjectBLL:
         if not parent_ids:
             return []
 
-        parents = Task.get_many_with_join(
+        parents: Sequence[dict] = Task.get_many_with_join(
             company_id,
             query=Q(id__in=parent_ids),
             query_dict={"name": name} if name else None,
@@ -1101,7 +1116,7 @@ class ProjectBLL:
         project_field: str = "project",
     ):
         conditions = {
-            "company": {"$in": [None, "", company]},
+            "company": {"$in": ["", company]},
             project_field: {"$in": project_ids},
         }
         if users:
@@ -1153,7 +1168,7 @@ class ProjectBLL:
 
         if or_conditions:
             if len(or_conditions) == 1:
-                conditions = next(iter(or_conditions))
+                conditions.update(next(iter(or_conditions)))
             else:
                 conditions["$and"] = [c for c in or_conditions]
 

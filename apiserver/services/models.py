@@ -27,12 +27,17 @@ from apiserver.apimodels.models import (
     UpdateModelRequest,
 )
 from apiserver.apimodels.tasks import UpdateTagsRequest
+from apiserver.bll.event import EventBLL
 from apiserver.bll.model import ModelBLL, Metadata
 from apiserver.bll.organization import OrgBLL, Tags
 from apiserver.bll.project import ProjectBLL
 from apiserver.bll.task import TaskBLL
+from apiserver.bll.task.task_cleanup import (
+    schedule_for_delete,
+    delete_task_events_and_collect_urls,
+)
 from apiserver.bll.task.task_operations import publish_task
-from apiserver.bll.task.utils import get_task_with_write_access
+from apiserver.bll.task.utils import get_task_with_write_access, deleted_prefix
 from apiserver.bll.util import run_batch_operation
 from apiserver.config_repo import config
 from apiserver.database.model import validate_id
@@ -64,6 +69,7 @@ from apiserver.services.utils import (
 log = config.logger(__file__)
 org_bll = OrgBLL()
 project_bll = ProjectBLL()
+event_bll = EventBLL()
 
 
 def conform_model_data(call: APICall, model_data: Union[Sequence[dict], dict]):
@@ -182,7 +188,12 @@ def get_all(call: APICall, company_id, _):
 def get_frameworks(call: APICall, company_id, request: GetFrameworksRequest):
     call.result.data = {
         "frameworks": sorted(
-            project_bll.get_model_frameworks(company_id, project_ids=request.projects)
+            filter(
+                None,
+                project_bll.get_model_frameworks(
+                    company_id, project_ids=request.projects
+                ),
+            )
         )
     }
 
@@ -216,6 +227,9 @@ last_update_fields = (
 
 
 def parse_model_fields(call, valid_fields):
+    task_id = call.data.get("task")
+    if isinstance(task_id, str) and task_id.startswith(deleted_prefix):
+        call.data.pop("task")
     fields = parse_from_call(call.data, valid_fields, Model.get_fields())
     conform_tag_fields(call, fields, validate=True)
     escape_metadata(fields)
@@ -555,16 +569,67 @@ def publish_many(call: APICall, company_id, request: ModelsPublishManyRequest):
     )
 
 
+def _delete_model_events(
+    company_id: str,
+    user_id: str,
+    models: Sequence[Model],
+    delete_external_artifacts: bool,
+    sync_delete: bool,
+):
+    if not models:
+        return
+    model_ids = [m.id for m in models]
+    delete_external_artifacts = delete_external_artifacts and config.get(
+        "services.async_urls_delete.enabled", True
+    )
+    if delete_external_artifacts:
+        model_urls = {m.uri for m in models if m.uri}
+        if model_urls:
+            schedule_for_delete(
+                task_id=model_ids[0],
+                company=company_id,
+                user=user_id,
+                urls=model_urls,
+                can_delete_folders=False,
+            )
+
+        event_urls = delete_task_events_and_collect_urls(
+            company=company_id,
+            task_ids=model_ids,
+            model=True,
+            wait_for_delete=sync_delete,
+        )
+        if event_urls:
+            schedule_for_delete(
+                task_id=model_ids[0],
+                company=company_id,
+                user=user_id,
+                urls=event_urls,
+                can_delete_folders=False,
+            )
+
+    event_bll.delete_task_events(
+        company_id, model_ids, model=True, wait_for_delete=sync_delete
+    )
+
+
 @endpoint("models.delete", request_data_model=DeleteModelRequest)
 def delete(call: APICall, company_id, request: DeleteModelRequest):
+    user_id = call.identity.user
     del_count, model = ModelBLL.delete_model(
         model_id=request.model,
         company_id=company_id,
-        user_id=call.identity.user,
+        user_id=user_id,
         force=request.force,
-        delete_external_artifacts=request.delete_external_artifacts,
     )
     if del_count:
+        _delete_model_events(
+            company_id=company_id,
+            user_id=user_id,
+            models=[model],
+            delete_external_artifacts=request.delete_external_artifacts,
+            sync_delete=True,
+        )
         _reset_cached_tags(
             company_id, projects=[model.project] if model.project else []
         )
@@ -577,27 +642,38 @@ def delete(call: APICall, company_id, request: DeleteModelRequest):
     request_data_model=ModelsDeleteManyRequest,
     response_data_model=BatchResponse,
 )
-def delete(call: APICall, company_id, request: ModelsDeleteManyRequest):
+def delete_many(call: APICall, company_id, request: ModelsDeleteManyRequest):
+    user_id = call.identity.user
+
     results, failures = run_batch_operation(
         func=partial(
             ModelBLL.delete_model,
             company_id=company_id,
             user_id=call.identity.user,
             force=request.force,
-            delete_external_artifacts=request.delete_external_artifacts,
         ),
         ids=request.ids,
     )
 
-    if results:
-        projects = set(model.project for _, (_, model) in results)
+    succeeded = []
+    deleted_models = []
+    for _id, (deleted, model) in results:
+        succeeded.append(dict(id=_id, deleted=bool(deleted), url=model.uri))
+        deleted_models.append(model)
+
+    if deleted_models:
+        _delete_model_events(
+            company_id=company_id,
+            user_id=user_id,
+            models=deleted_models,
+            delete_external_artifacts=request.delete_external_artifacts,
+            sync_delete=False,
+        )
+        projects = set(model.project for model in deleted_models)
         _reset_cached_tags(company_id, projects=list(projects))
 
     call.result.data_model = BatchResponse(
-        succeeded=[
-            dict(id=_id, deleted=bool(deleted), url=model.uri)
-            for _id, (deleted, model) in results
-        ],
+        succeeded=succeeded,
         failed=failures,
     )
 
@@ -684,10 +760,11 @@ def move(call: APICall, company_id: str, request: MoveRequest):
 
 
 @endpoint("models.update_tags")
-def update_tags(_, company_id: str, request: UpdateTagsRequest):
+def update_tags(call: APICall, company_id: str, request: UpdateTagsRequest):
     return {
         "updated": org_bll.edit_entity_tags(
             company_id=company_id,
+            user_id=call.identity.user,
             entity_cls=Model,
             entity_ids=request.ids,
             add_tags=request.add_tags,

@@ -47,7 +47,7 @@ class ProjectQueries:
     @staticmethod
     def _get_company_constraint(company_id: str, allow_public: bool = True) -> dict:
         if allow_public:
-            return {"company": {"$in": [None, "", company_id]}}
+            return {"company": {"$in": ["", company_id]}}
 
         return {"company": company_id}
 

@@ -73,8 +73,12 @@ class WorkerStats:
         Buckets with no metrics are not returned
         Note: all the statistics are retrieved as one ES query
         """
-        if request.from_date >= request.to_date:
+        from_date = request.from_date
+        to_date = request.to_date
+        if from_date >= to_date:
             raise bad_request.FieldsValueError("from_date must be less than to_date")
+
+        interval = max(request.interval, self.min_chart_interval)
 
         def get_dates_agg() -> dict:
             es_to_agg_types = (
@@ -87,8 +91,11 @@ class WorkerStats:
                 "dates": {
                     "date_histogram": {
                         "field": "timestamp",
-                        "fixed_interval": f"{request.interval}s",
-                        "min_doc_count": 1,
+                        "fixed_interval": f"{interval}s",
+                        "extended_bounds": {
+                          "min": int(from_date) * 1000,
+                          "max": int(to_date) * 1000,
+                        }
                     },
                     "aggs": {
                         agg_type: {es_agg: {"field": "value"}}
@@ -120,7 +127,7 @@ class WorkerStats:
         }
 
         query_terms = [
-            QueryBuilder.dates_range(request.from_date, request.to_date),
+            QueryBuilder.dates_range(from_date, to_date),
             QueryBuilder.terms("metric", {item.key for item in request.items}),
         ]
         if request.worker_ids:
@@ -130,16 +137,16 @@ class WorkerStats:
         with translate_errors_context():
             data = self._search_company_stats(company_id, es_req)
 
-        return self._extract_results(data, request.items, request.split_by_variant)
+        cutoff_date = (to_date - 0.9 * interval) * 1000  # do not return the point for the incomplete last interval
+        return self._extract_results(data, request.items, request.split_by_variant, cutoff_date)
 
     @staticmethod
     def _extract_results(
-        data: dict, request_items: Sequence[StatItem], split_by_variant: bool
+        data: dict, request_items: Sequence[StatItem], split_by_variant: bool, cutoff_date
     ) -> dict:
         """
         Clean results returned from elastic search (remove "aggregations", "buckets" etc.),
         leave only aggregation types requested by the user and return a clean dictionary
-        and return a "clean" dictionary of
         :param data: aggregation data retrieved from ES
         :param request_items: aggs types requested by the user
         :param split_by_variant: if False then aggregate by metric type, otherwise metric type + variant
@@ -157,7 +164,7 @@ class WorkerStats:
             return {
                 "date": date["key"],
                 "count": date["doc_count"],
-                **{agg: date[agg]["value"] for agg in aggs_per_metric[metric_key]},
+                **{agg: date[agg]["value"] or 0.0 for agg in aggs_per_metric[metric_key]},
             }
 
         def extract_metric_results(
@@ -166,7 +173,7 @@ class WorkerStats:
             return [
                 extract_date_stats(date, metric_key)
                 for date in metric_or_variant["dates"]["buckets"]
-                if date["doc_count"]
+                if date["key"] <= cutoff_date
             ]
 
         def extract_variant_results(metric: dict) -> dict:

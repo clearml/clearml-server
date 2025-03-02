@@ -7,6 +7,7 @@ import urllib.parse
 from argparse import ArgumentParser
 from collections import defaultdict
 from pathlib import Path
+from typing import Optional
 
 from boltons.iterutils import first
 from flask import Flask, request, send_from_directory, abort, Response
@@ -113,8 +114,12 @@ def download(path):
     return response
 
 
-def _get_full_path(path: str) -> Path:
-    return Path(safe_join(os.fspath(app.config["UPLOAD_FOLDER"]), os.fspath(path)))
+def _get_full_path(path: str) -> Optional[Path]:
+    path_str = safe_join(os.fspath(app.config["UPLOAD_FOLDER"]), os.fspath(path))
+    if path_str is None:
+        return path_str
+
+    return Path(path_str)
 
 
 @app.route("/<path:path>", methods=["DELETE"])
@@ -123,7 +128,7 @@ def delete(path):
         auth_handler.validate(request)
 
     full_path = _get_full_path(path)
-    if not full_path.exists() or not full_path.is_file():
+    if not (full_path and full_path.exists() and full_path.is_file()):
         log.error(f"Error deleting file {str(full_path)}. Not found or not a file")
         abort(Response(f"File {str(path)} not found", 404))
 
@@ -161,7 +166,7 @@ def batch_delete():
 
         full_path = _get_full_path(path)
 
-        if not full_path.exists():
+        if not (full_path and full_path.exists()):
             record_error("Not found", file, path)
             continue
 

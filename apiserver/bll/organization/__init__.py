@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import datetime
 from enum import Enum
 from typing import Sequence, Dict, Type
 
@@ -28,6 +29,7 @@ class OrgBLL:
     def edit_entity_tags(
         self,
         company_id,
+        user_id: str,
         entity_cls: Type[AttributedDocument],
         entity_ids: Sequence[str],
         add_tags: Sequence[str],
@@ -47,13 +49,17 @@ class OrgBLL:
             )
 
         updated = 0
+        last_changed = {
+            "set__last_change": datetime.utcnow(),
+            "set__last_changed_by": user_id,
+        }
         if add_tags:
             updated += entity_cls.objects(company=company_id, id__in=entity_ids).update(
-                add_to_set__tags=add_tags
+                add_to_set__tags=add_tags, **last_changed,
             )
         if remove_tags:
             updated += entity_cls.objects(company=company_id, id__in=entity_ids).update(
-                pull_all__tags=remove_tags
+                pull_all__tags=remove_tags, **last_changed,
             )
         if not updated:
             return 0

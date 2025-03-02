@@ -370,6 +370,7 @@ def delete(call: APICall, company_id: str, request: DeleteRequest):
         delete_external_artifacts=request.delete_external_artifacts,
     )
     _reset_cached_tags(company_id, projects=list(affected_projects))
+    # noinspection PyTypeChecker
     call.result.data = {**attr.asdict(res)}
 
 

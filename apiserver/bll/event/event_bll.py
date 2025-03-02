@@ -41,7 +41,7 @@ from apiserver.bll.event.event_metrics import EventMetrics
 from apiserver.bll.task import TaskBLL
 from apiserver.config_repo import config
 from apiserver.database.errors import translate_errors_context
-from apiserver.database.model.task.task import Task, TaskStatus
+from apiserver.database.model.task.task import TaskStatus
 from apiserver.redis_manager import redman
 from apiserver.service_repo.auth import Identity
 from apiserver.utilities.dicts import nested_get
@@ -201,6 +201,8 @@ class EventBLL(object):
         invalid_iteration_error = f"Iteration number should not exceed {MAX_LONG}"
 
         for event in events:
+            x_axis_label = event.pop("x_axis_label", None)
+
             # remove spaces from event type
             event_type = event.get("type")
             if event_type is None:
@@ -296,6 +298,7 @@ class EventBLL(object):
                 self._update_last_scalar_events_for_task(
                     last_events=task_last_scalar_events[task_or_model_id],
                     event=event,
+                    x_axis_label=x_axis_label,
                 )
 
             actions.append(es_action)
@@ -319,6 +322,7 @@ class EventBLL(object):
             if actions:
                 chunk_size = 500
                 # TODO: replace it with helpers.parallel_bulk in the future once the parallel pool leak is fixed
+                # noinspection PyTypeChecker
                 with closing(
                     elasticsearch.helpers.streaming_bulk(
                         self.es,
@@ -430,7 +434,7 @@ class EventBLL(object):
             return False
         return True
 
-    def _update_last_scalar_events_for_task(self, last_events, event):
+    def _update_last_scalar_events_for_task(self, last_events, event, x_axis_label=None):
         """
         Update last_events structure with the provided event details if this event is more
         recent than the currently stored event for its metric/variant combination.
@@ -438,45 +442,47 @@ class EventBLL(object):
         last_events contains [hashed_metric_name -> hashed_variant_name -> event]. Keys are hashed to avoid mongodb
         key conflicts due to invalid characters and/or long field names.
         """
+        value = event.get("value")
+        if value is None:
+            return
+
         metric = event.get("metric") or ""
         variant = event.get("variant") or ""
-
         metric_hash = dbutils.hash_field_name(metric)
         variant_hash = dbutils.hash_field_name(variant)
 
         last_event = last_events[metric_hash][variant_hash]
+        last_event["metric"] = metric
+        last_event["variant"] = variant
+        last_event["count"] = last_event.get("count", 0) + 1
+        last_event["total"] = last_event.get("total", 0) + value
+
         event_iter = event.get("iter", 0)
         event_timestamp = event.get("timestamp", 0)
-        value = event.get("value")
-        if value is not None and (
-            (event_iter, event_timestamp)
-            >= (
-                last_event.get("iter", event_iter),
-                last_event.get("timestamp", event_timestamp),
-            )
+        if (event_iter, event_timestamp) >= (
+            last_event.get("iter", event_iter),
+            last_event.get("timestamp", event_timestamp),
         ):
-            event_data = {
-                k: event[k]
-                for k in ("value", "metric", "variant", "iter", "timestamp")
-                if k in event
-            }
-            last_event_min_value = last_event.get("min_value", value)
-            last_event_min_value_iter = last_event.get("min_value_iter", event_iter)
-            if value < last_event_min_value:
-                event_data["min_value"] = value
-                event_data["min_value_iter"] = event_iter
-            else:
-                event_data["min_value"] = last_event_min_value
-                event_data["min_value_iter"] = last_event_min_value_iter
-            last_event_max_value = last_event.get("max_value", value)
-            last_event_max_value_iter = last_event.get("max_value_iter", event_iter)
-            if value > last_event_max_value:
-                event_data["max_value"] = value
-                event_data["max_value_iter"] = event_iter
-            else:
-                event_data["max_value"] = last_event_max_value
-                event_data["max_value_iter"] = last_event_max_value_iter
-            last_events[metric_hash][variant_hash] = event_data
+            last_event["value"] = value
+            last_event["iter"] = event_iter
+            last_event["timestamp"] = event_timestamp
+            if x_axis_label is not None:
+                last_event["x_axis_label"] = x_axis_label
+
+        first_value_iter = last_event.get("first_value_iter")
+        if first_value_iter is None or event_iter < first_value_iter:
+            last_event["first_value"] = value
+            last_event["first_value_iter"] = event_iter
+
+        last_event_min_value = last_event.get("min_value")
+        if last_event_min_value is None or value < last_event_min_value:
+            last_event["min_value"] = value
+            last_event["min_value_iter"] = event_iter
+
+        last_event_max_value = last_event.get("max_value")
+        if last_event_max_value is None or value > last_event_max_value:
+            last_event["max_value"] = value
+            last_event["max_value_iter"] = event_iter
 
     def _update_last_metric_events_for_task(self, last_events, event):
         """
@@ -659,7 +665,9 @@ class EventBLL(object):
         Release the scroll once it is exhausted
         """
         total_events = nested_get(es_res, ("hits", "total", "value"), default=0)
-        events = [doc["_source"] for doc in nested_get(es_res, ("hits", "hits"), default=[])]
+        events = [
+            doc["_source"] for doc in nested_get(es_res, ("hits", "hits"), default=[])
+        ]
         next_scroll_id = es_res.get("_scroll_id")
         if next_scroll_id and not events:
             self.clear_scroll(next_scroll_id)
@@ -1149,34 +1157,6 @@ class EventBLL(object):
         }
 
     @staticmethod
-    def _validate_model_state(
-        company_id: str, model_id: str, allow_locked: bool = False
-    ):
-        extra_msg = None
-        query = Q(id=model_id, company=company_id)
-        if not allow_locked:
-            query &= Q(ready__ne=True)
-            extra_msg = "or model published"
-        res = Model.objects(query).only("id").first()
-        if not res:
-            raise errors.bad_request.InvalidModelId(
-                extra_msg, company=company_id, id=model_id
-            )
-
-    @staticmethod
-    def _validate_task_state(company_id: str, task_id: str, allow_locked: bool = False):
-        extra_msg = None
-        query = Q(id=task_id, company=company_id)
-        if not allow_locked:
-            query &= Q(status__nin=LOCKED_TASK_STATUSES)
-            extra_msg = "or task published"
-        res = Task.objects(query).only("id").first()
-        if not res:
-            raise errors.bad_request.InvalidTaskId(
-                extra_msg, company=company_id, id=task_id
-            )
-
-    @staticmethod
     def _get_events_deletion_params(async_delete: bool) -> dict:
         if async_delete:
             return {
@@ -1188,51 +1168,53 @@ class EventBLL(object):
 
         return {"refresh": True}
 
-    def delete_task_events(self, company_id, task_id, allow_locked=False, model=False):
-        if model:
-            self._validate_model_state(
-                company_id=company_id,
-                model_id=task_id,
-                allow_locked=allow_locked,
-            )
-        else:
-            self._validate_task_state(
-                company_id=company_id, task_id=task_id, allow_locked=allow_locked
-            )
-        async_delete = async_task_events_delete
-        if async_delete:
-            total = self.events_iterator.count_task_events(
-                event_type=EventType.all,
-                company_id=company_id,
-                task_ids=[task_id],
-            )
-            if total <= async_delete_threshold:
-                async_delete = False
-        es_req = {"query": {"term": {"task": task_id}}}
+    def delete_task_events(
+        self,
+        company_id,
+        task_ids: Union[str, Sequence[str]],
+        wait_for_delete: bool,
+        model=False,
+    ):
+        """
+        Delete task events. No check is done for tasks write access
+        so it should be checked by the calling code
+        """
+        if isinstance(task_ids, str):
+            task_ids = [task_ids]
+        deleted = 0
         with translate_errors_context():
-            es_res = delete_company_events(
-                es=self.es,
-                company_id=company_id,
-                event_type=EventType.all,
-                body=es_req,
-                **self._get_events_deletion_params(async_delete),
-            )
+            async_delete = async_task_events_delete and not wait_for_delete
+            if async_delete and len(task_ids) < 100:
+                total = self.events_iterator.count_task_events(
+                    event_type=EventType.all,
+                    company_id=company_id,
+                    task_ids=task_ids,
+                )
+                if total <= async_delete_threshold:
+                    async_delete = False
+            for tasks in chunked_iter(task_ids, 100):
+                es_req = {"query": {"terms": {"task": tasks}}}
+                es_res = delete_company_events(
+                    es=self.es,
+                    company_id=company_id,
+                    event_type=EventType.all,
+                    body=es_req,
+                    **self._get_events_deletion_params(async_delete),
+                )
+                if not async_delete:
+                    deleted += es_res.get("deleted", 0)
 
         if not async_delete:
-            return es_res.get("deleted", 0)
+            return deleted
 
     def clear_task_log(
         self,
         company_id: str,
         task_id: str,
-        allow_locked: bool = False,
         threshold_sec: int = None,
         include_metrics: Sequence[str] = None,
         exclude_metrics: Sequence[str] = None,
     ):
-        self._validate_task_state(
-            company_id=company_id, task_id=task_id, allow_locked=allow_locked
-        )
         if check_empty_data(
             self.es, company_id=company_id, event_type=EventType.task_log
         ):
@@ -1273,39 +1255,6 @@ class EventBLL(object):
                 refresh=True,
             )
             return es_res.get("deleted", 0)
-
-    def delete_multi_task_events(
-        self, company_id: str, task_ids: Sequence[str], model=False
-    ):
-        """
-        Delete multiple task events. No check is done for tasks write access
-        so it should be checked by the calling code
-        """
-        deleted = 0
-        with translate_errors_context():
-            async_delete = async_task_events_delete
-            if async_delete and len(task_ids) < 100:
-                total = self.events_iterator.count_task_events(
-                    event_type=EventType.all,
-                    company_id=company_id,
-                    task_ids=task_ids,
-                )
-                if total <= async_delete_threshold:
-                    async_delete = False
-            for tasks in chunked_iter(task_ids, 100):
-                es_req = {"query": {"terms": {"task": tasks}}}
-                es_res = delete_company_events(
-                    es=self.es,
-                    company_id=company_id,
-                    event_type=EventType.all,
-                    body=es_req,
-                    **self._get_events_deletion_params(async_delete),
-                )
-                if not async_delete:
-                    deleted += es_res.get("deleted", 0)
-
-        if not async_delete:
-            return deleted
 
     def clear_scroll(self, scroll_id: str):
         if scroll_id == self.empty_scroll:

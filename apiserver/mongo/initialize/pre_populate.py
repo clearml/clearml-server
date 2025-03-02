@@ -28,10 +28,11 @@ from urllib.parse import unquote, urlparse
 from uuid import uuid4, UUID, uuid5
 from zipfile import ZipFile, ZIP_BZIP2
 
+import attr
 import mongoengine
 from boltons.iterutils import chunked_iter, first
 from furl import furl
-from mongoengine import Q
+from mongoengine import Q, Document
 
 from apiserver.bll.event import EventBLL
 from apiserver.bll.event.event_common import EventType
@@ -61,6 +62,8 @@ from apiserver.utilities import json
 from apiserver.utilities.dicts import nested_get, nested_set, nested_delete
 from apiserver.utilities.parameter_key_escaper import ParameterKeyEscaper
 
+replace_s3_scheme = os.getenv("CLEARML_REPLACE_S3_SCHEME")
+
 
 class PrePopulate:
     module_name_prefix = "apiserver."
@@ -83,6 +86,11 @@ class PrePopulate:
     model_cls: Type[Model]
     user_cls: Type[User]
     auth_user_cls: Type[AuthUser]
+
+    @attr.s(auto_attribs=True)
+    class ParentPrefix:
+        prefix: str
+        path: Sequence[str]
 
     # noinspection PyTypeChecker
     @classmethod
@@ -469,20 +477,35 @@ class PrePopulate:
     @classmethod
     def _check_projects_hierarchy(cls, projects: Set[Project]):
         """
-        For any exported project all its parents up to the root should be present
+        For the projects that are exported not from the root
+        fix their parents tree to exclude the not exported parents
         """
         if not projects:
             return
 
         project_ids = {p.id for p in projects}
-        orphans = [p.id for p in projects if p.parent and p.parent not in project_ids]
+        orphans = [p for p in projects if p.parent and p.parent not in project_ids]
         if not orphans:
             return
 
-        print(
-            f"ERROR: the following projects are exported without their parents: {orphans}"
-        )
-        exit(1)
+        prefixes = [
+            cls.ParentPrefix(prefix=f"{project.name.rpartition('/')[0]}/", path=project.path)
+            for project in orphans
+        ]
+        prefixes.sort(key=lambda p: len(p.path), reverse=True)
+        for project in projects:
+            prefix = first(pref for pref in prefixes if project.path[:len(pref.path)] == pref.path)
+            if not prefix:
+                continue
+            project.path = project.path[len(prefix.path):]
+            if not project.path:
+                project.parent = None
+            project.name = project.name.removeprefix(prefix.prefix)
+
+        # print(
+        #     f"ERROR: the following projects are exported without their parents: {orphans}"
+        # )
+        # exit(1)
 
     @classmethod
     def _resolve_entities(
@@ -491,6 +514,7 @@ class PrePopulate:
         projects: Sequence[str] = None,
         task_statuses: Sequence[str] = None,
     ) -> Dict[Type[mongoengine.Document], Set[mongoengine.Document]]:
+        # noinspection PyTypeChecker
         entities: Dict[Any] = defaultdict(set)
 
         if projects:
@@ -539,6 +563,7 @@ class PrePopulate:
             print("Reading models...")
             entities[cls.model_cls] = set(cls.model_cls.objects(id__in=list(model_ids)))
 
+        # noinspection PyTypeChecker
         return entities
 
     @classmethod
@@ -643,8 +668,9 @@ class PrePopulate:
 
     @staticmethod
     def _get_fixed_url(url: Optional[str]) -> Optional[str]:
-        if not (url and url.lower().startswith("s3://")):
+        if not (replace_s3_scheme and url and url.lower().startswith("s3://")):
             return url
+
         try:
             fixed = furl(url)
             fixed.scheme = "https"
@@ -983,8 +1009,10 @@ class PrePopulate:
         module = importlib.import_module(module_name)
         return getattr(module, class_name)
 
-    @staticmethod
-    def _upgrade_project_data(project_data: dict) -> dict:
+    @classmethod
+    def _upgrade_project_data(cls, project_data: dict) -> dict:
+        cls._remove_incompatible_fields(cls.project_cls, project_data)
+
         if not project_data.get("basename"):
             name: str = project_data["name"]
             _, _, basename = name.rpartition("/")
@@ -992,8 +1020,10 @@ class PrePopulate:
 
         return project_data
 
-    @staticmethod
-    def _upgrade_model_data(model_data: dict) -> dict:
+    @classmethod
+    def _upgrade_model_data(cls, model_data: dict) -> dict:
+        cls._remove_incompatible_fields(cls.model_cls, model_data)
+
         metadata_key = "metadata"
         metadata = model_data.get(metadata_key)
         if isinstance(metadata, list):
@@ -1006,7 +1036,13 @@ class PrePopulate:
         return model_data
 
     @staticmethod
-    def _upgrade_task_data(task_data: dict) -> dict:
+    def _remove_incompatible_fields(cls_: Type[Document], data: dict):
+        for field in ("company_origin",):
+            if field not in cls_._db_field_map:
+                data.pop(field, None)
+
+    @classmethod
+    def _upgrade_task_data(cls, task_data: dict) -> dict:
         """
         Migrate from execution/parameters and model_desc to hyperparams and configuration fiields
         Upgrade artifacts list to dict
@@ -1015,6 +1051,8 @@ class PrePopulate:
         :param task_data: Upgraded in place
         :return: The upgraded task data
         """
+        cls._remove_incompatible_fields(cls.task_cls, task_data)
+
         for old_param_field, new_param_field, default_section in (
             ("execution.parameters", "hyperparams", hyperparams_default_section),
             ("execution.model_desc", "configuration", None),
@@ -1133,7 +1171,7 @@ class PrePopulate:
 
             if isinstance(doc, cls.task_cls):
                 tasks.append(doc)
-                cls.event_bll.delete_task_events(company_id, doc.id, allow_locked=True)
+                cls.event_bll.delete_task_events(company_id, doc.id, wait_for_delete=True)
 
         if tasks:
             return tasks

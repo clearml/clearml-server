@@ -6,7 +6,6 @@ from mongoengine import Q
 from apiserver.apierrors import errors
 from apiserver.apimodels.models import ModelTaskPublishResponse
 from apiserver.bll.task.utils import deleted_prefix, get_last_metric_updates
-from apiserver.config_repo import config
 from apiserver.database.model import EntityVisibility
 from apiserver.database.model.model import Model
 from apiserver.database.model.task.task import Task, TaskStatus
@@ -15,8 +14,6 @@ from .metadata import Metadata
 
 
 class ModelBLL:
-    event_bll = None
-
     @classmethod
     def get_company_model_by_id(
         cls, company_id: str, model_id: str, only_fields=None
@@ -94,7 +91,7 @@ class ModelBLL:
 
     @classmethod
     def delete_model(
-        cls, model_id: str, company_id: str, user_id: str, force: bool, delete_external_artifacts: bool = True,
+        cls, model_id: str, company_id: str, user_id: str, force: bool
     ) -> Tuple[int, Model]:
         model = cls.get_company_model_by_id(
             company_id=company_id,
@@ -147,34 +144,6 @@ class ModelBLL:
                         set__last_changed_by=user_id,
                     )
 
-        delete_external_artifacts = delete_external_artifacts and config.get(
-            "services.async_urls_delete.enabled", True
-        )
-        if delete_external_artifacts:
-            from apiserver.bll.task.task_cleanup import (
-                collect_debug_image_urls,
-                collect_plot_image_urls,
-                _schedule_for_delete,
-            )
-            urls = set()
-            urls.update(collect_debug_image_urls(company_id, model_id))
-            urls.update(collect_plot_image_urls(company_id, model_id))
-            if model.uri:
-                urls.add(model.uri)
-            if urls:
-                _schedule_for_delete(
-                    task_id=model_id,
-                    company=company_id,
-                    user=user_id,
-                    urls=urls,
-                    can_delete_folders=False,
-                )
-
-        if not cls.event_bll:
-            from apiserver.bll.event import EventBLL
-            cls.event_bll = EventBLL()
-
-        cls.event_bll.delete_task_events(company_id, model_id, allow_locked=True, model=True)
         del_count = Model.objects(id=model_id, company=company_id).delete()
         return del_count, model
 
@@ -217,7 +186,7 @@ class ModelBLL:
             [
                 {
                     "$match": {
-                        "company": {"$in": [None, "", company]},
+                        "company": {"$in": ["", company]},
                         "_id": {"$in": model_ids},
                     }
                 },

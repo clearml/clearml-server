@@ -8,13 +8,16 @@ import pymongo.database
 from mongoengine.connection import get_db
 from packaging.version import Version, parse
 
+from apiserver.config_repo import config
 from apiserver.database import utils
 from apiserver.database import Database
 from apiserver.database.model.version import Version as DatabaseVersion
+from apiserver.utilities.dicts import nested_get
 
 _migrations = "migrations"
 _parent_dir = Path(__file__).resolve().parents[1]
 _migration_dir = _parent_dir / _migrations
+log = config.logger(__file__)
 
 
 def check_mongo_empty() -> bool:
@@ -41,6 +44,26 @@ def get_last_server_version() -> Version:
     return previous_versions[0] if previous_versions else Version("0.0.0")
 
 
+def _ensure_mongodb_version():
+    db: pymongo.database.Database = get_db(Database.backend)
+    db_version = db.client.server_info()["version"]
+    if not db_version.startswith("6.0"):
+        log.warning(f"Database version should be 6.0.x. Instead: {str(db_version)}")
+        return
+
+    res = db.client.admin.command({"getParameter": 1, "featureCompatibilityVersion": 1})
+    version = nested_get(res, ("featureCompatibilityVersion", "version"))
+    if version == "6.0":
+        return
+    if version != "5.0":
+        log.warning(f"Cannot upgrade DB version. Should be 5.0. {str(res)}")
+        return
+
+    log.info("Upgrading db version from 5.0 to 6.0")
+    res = db.client.admin.command({"setFeatureCompatibilityVersion": "6.0"})
+    log.info(res)
+
+
 def _apply_migrations(log: Logger):
     """
     Apply migrations as found in the migration dir.
@@ -49,6 +72,8 @@ def _apply_migrations(log: Logger):
     log = log.getChild(Path(__file__).stem)
 
     log.info(f"Started mongodb migrations")
+
+    _ensure_mongodb_version()
 
     if not _migration_dir.is_dir():
         raise ValueError(f"Invalid migration dir {_migration_dir}")

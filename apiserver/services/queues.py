@@ -20,13 +20,15 @@ from apiserver.apimodels.queues import (
     GetNextTaskRequest,
     GetByIdRequest,
     GetAllRequest,
+    AddTaskRequest,
+    RemoveTaskRequest,
 )
 from apiserver.bll.model import Metadata
 from apiserver.bll.queue import QueueBLL
 from apiserver.bll.queue.queue_bll import MOVE_FIRST, MOVE_LAST
 from apiserver.bll.workers import WorkerBLL
 from apiserver.config_repo import config
-from apiserver.database.model.task.task import Task
+from apiserver.database.model.task.task import Task, TaskStatus
 from apiserver.service_repo import APICall, endpoint
 from apiserver.services.utils import (
     conform_tag_fields,
@@ -46,7 +48,7 @@ def conform_queue_data(call: APICall, queue_data: Union[Sequence[dict], dict]):
     unescape_metadata(call, queue_data)
 
 
-@endpoint("queues.get_by_id", min_version="2.4", request_data_model=GetByIdRequest)
+@endpoint("queues.get_by_id", min_version="2.4")
 def get_by_id(call: APICall, company_id, request: GetByIdRequest):
     queue = queue_bll.get_by_id(
         company_id, request.queue, max_task_entries=request.max_task_entries
@@ -111,7 +113,7 @@ def get_all(call: APICall, company: str, request: GetAllRequest):
     call.result.data = {"queues": queues, **ret_params}
 
 
-@endpoint("queues.create", min_version="2.4", request_data_model=CreateRequest)
+@endpoint("queues.create", min_version="2.4")
 def create(call: APICall, company_id, request: CreateRequest):
     tags, system_tags = conform_tags(
         call, request.tags, request.system_tags, validate=True
@@ -119,6 +121,7 @@ def create(call: APICall, company_id, request: CreateRequest):
     queue = queue_bll.create(
         company_id=company_id,
         name=request.name,
+        display_name=request.display_name,
         tags=tags,
         system_tags=system_tags,
         metadata=Metadata.metadata_from_api(request.metadata),
@@ -129,60 +132,82 @@ def create(call: APICall, company_id, request: CreateRequest):
 @endpoint(
     "queues.update",
     min_version="2.4",
-    request_data_model=UpdateRequest,
     response_data_model=UpdateResponse,
 )
-def update(call: APICall, company_id, req_model: UpdateRequest):
+def update(call: APICall, company_id, request: UpdateRequest):
     data = call.data_model_for_partial_update
     conform_tag_fields(call, data, validate=True)
     escape_metadata(data)
     updated, fields = queue_bll.update(
-        company_id=company_id, queue_id=req_model.queue, **data
+        company_id=company_id, queue_id=request.queue, **data
     )
     conform_queue_data(call, fields)
     call.result.data_model = UpdateResponse(updated=updated, fields=fields)
 
 
-@endpoint("queues.delete", min_version="2.4", request_data_model=DeleteRequest)
-def delete(call: APICall, company_id, req_model: DeleteRequest):
+@endpoint("queues.delete", min_version="2.4")
+def delete(call: APICall, company_id, request: DeleteRequest):
     queue_bll.delete(
         company_id=company_id,
         user_id=call.identity.user,
-        queue_id=req_model.queue,
-        force=req_model.force,
+        queue_id=request.queue,
+        force=request.force,
     )
     call.result.data = {"deleted": 1}
 
 
-@endpoint("queues.add_task", min_version="2.4", request_data_model=TaskRequest)
-def add_task(call: APICall, company_id, req_model: TaskRequest):
-    call.result.data = {
-        "added": queue_bll.add_task(
-            company_id=company_id, queue_id=req_model.queue, task_id=req_model.task
+@endpoint("queues.add_task", min_version="2.4")
+def add_task(call: APICall, company_id, request: AddTaskRequest):
+    added = queue_bll.add_task(
+        company_id=company_id, queue_id=request.queue, task_id=request.task
+    )
+    if added and request.update_execution_queue:
+        Task.objects(id=request.task).update(
+            execution__queue=request.queue, multi=False
         )
-    }
+    call.result.data = {"added": added}
 
 
-@endpoint("queues.get_next_task", request_data_model=GetNextTaskRequest)
+@endpoint("queues.get_next_task")
 def get_next_task(call: APICall, company_id, request: GetNextTaskRequest):
     entry = queue_bll.get_next_task(
         company_id=company_id, queue_id=request.queue, task_id=request.task
     )
     if entry:
         data = {"entry": entry.to_proper_dict()}
-        if request.get_task_info:
-            task = Task.objects(id=entry.task).only("company", "user").first()
-            if task:
+        task = Task.objects(id=entry.task).only("company", "user", "status").first()
+        if task:
+            # fix racing condition that can result in the task being aborted
+            # by an agent after it was already placed in a queue
+            if task.status == TaskStatus.stopped:
+                task.update(status=TaskStatus.queued)
+
+            if request.get_task_info:
                 data["task_info"] = {"company": task.company, "user": task.user}
 
         call.result.data = data
 
 
-@endpoint("queues.remove_task", min_version="2.4", request_data_model=TaskRequest)
-def remove_task(call: APICall, company_id, req_model: TaskRequest):
+@endpoint("queues.remove_task", min_version="2.4")
+def remove_task(call: APICall, company_id, request: RemoveTaskRequest):
     call.result.data = {
         "removed": queue_bll.remove_task(
-            company_id=company_id, queue_id=req_model.queue, task_id=req_model.task
+            company_id=company_id,
+            user_id=call.identity.user,
+            queue_id=request.queue,
+            task_id=request.task,
+            update_task_status=request.update_task_status,
+        )
+    }
+
+
+@endpoint("queues.clear_queue")
+def clear_queue(call: APICall, company_id, request: QueueRequest):
+    call.result.data = {
+        "removed_tasks": queue_bll.clear_queue(
+            company_id=company_id,
+            user_id=call.identity.user,
+            queue_id=request.queue,
         )
     }
 
@@ -190,16 +215,15 @@ def remove_task(call: APICall, company_id, req_model: TaskRequest):
 @endpoint(
     "queues.move_task_forward",
     min_version="2.4",
-    request_data_model=MoveTaskRequest,
     response_data_model=MoveTaskResponse,
 )
-def move_task_forward(call: APICall, company_id, req_model: MoveTaskRequest):
+def move_task_forward(call: APICall, company_id, request: MoveTaskRequest):
     call.result.data_model = MoveTaskResponse(
         position=queue_bll.reposition_task(
             company_id=company_id,
-            queue_id=req_model.queue,
-            task_id=req_model.task,
-            move_count=-req_model.count,
+            queue_id=request.queue,
+            task_id=request.task,
+            move_count=-request.count,
         )
     )
 
@@ -207,16 +231,15 @@ def move_task_forward(call: APICall, company_id, req_model: MoveTaskRequest):
 @endpoint(
     "queues.move_task_backward",
     min_version="2.4",
-    request_data_model=MoveTaskRequest,
     response_data_model=MoveTaskResponse,
 )
-def move_task_backward(call: APICall, company_id, req_model: MoveTaskRequest):
+def move_task_backward(call: APICall, company_id, request: MoveTaskRequest):
     call.result.data_model = MoveTaskResponse(
         position=queue_bll.reposition_task(
             company_id=company_id,
-            queue_id=req_model.queue,
-            task_id=req_model.task,
-            move_count=req_model.count,
+            queue_id=request.queue,
+            task_id=request.task,
+            move_count=request.count,
         )
     )
 
@@ -224,15 +247,14 @@ def move_task_backward(call: APICall, company_id, req_model: MoveTaskRequest):
 @endpoint(
     "queues.move_task_to_front",
     min_version="2.4",
-    request_data_model=TaskRequest,
     response_data_model=MoveTaskResponse,
 )
-def move_task_to_front(call: APICall, company_id, req_model: TaskRequest):
+def move_task_to_front(call: APICall, company_id, request: TaskRequest):
     call.result.data_model = MoveTaskResponse(
         position=queue_bll.reposition_task(
             company_id=company_id,
-            queue_id=req_model.queue,
-            task_id=req_model.task,
+            queue_id=request.queue,
+            task_id=request.task,
             move_count=MOVE_FIRST,
         )
     )
@@ -241,15 +263,14 @@ def move_task_to_front(call: APICall, company_id, req_model: TaskRequest):
 @endpoint(
     "queues.move_task_to_back",
     min_version="2.4",
-    request_data_model=TaskRequest,
     response_data_model=MoveTaskResponse,
 )
-def move_task_to_back(call: APICall, company_id, req_model: TaskRequest):
+def move_task_to_back(call: APICall, company_id, request: TaskRequest):
     call.result.data_model = MoveTaskResponse(
         position=queue_bll.reposition_task(
             company_id=company_id,
-            queue_id=req_model.queue,
-            task_id=req_model.task,
+            queue_id=request.queue,
+            task_id=request.task,
             move_count=MOVE_LAST,
         )
     )
@@ -258,7 +279,6 @@ def move_task_to_back(call: APICall, company_id, req_model: TaskRequest):
 @endpoint(
     "queues.get_queue_metrics",
     min_version="2.4",
-    request_data_model=GetMetricsRequest,
     response_data_model=GetMetricsResponse,
 )
 def get_queue_metrics(

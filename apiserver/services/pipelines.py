@@ -1,8 +1,6 @@
 import re
 from functools import partial
 
-import attr
-
 from apiserver.apierrors.errors.bad_request import CannotRemoveAllRuns
 from apiserver.apimodels.pipelines import (
     StartPipelineRequest,
@@ -18,6 +16,7 @@ from apiserver.database.model.project import Project
 from apiserver.database.model.task.task import Task, TaskType
 from apiserver.service_repo import APICall, endpoint
 from apiserver.utilities.dicts import nested_get
+from .tasks import _delete_task_events
 
 org_bll = OrgBLL()
 project_bll = ProjectBLL()
@@ -62,21 +61,31 @@ def delete_runs(call: APICall, company_id: str, request: DeleteRunsRequest):
             identity=call.identity,
             move_to_trash=False,
             force=True,
-            return_file_urls=False,
             delete_output_models=True,
             status_message="",
             status_reason="Pipeline run deleted",
-            delete_external_artifacts=True,
             include_pipeline_steps=True,
         ),
         ids=list(ids),
     )
 
     succeeded = []
+    tasks = {}
     if results:
         for _id, (deleted, task, cleanup_res) in results:
+            if deleted:
+                tasks[_id] = cleanup_res
             succeeded.append(
-                dict(id=_id, deleted=bool(deleted), **attr.asdict(cleanup_res))
+                dict(id=_id, deleted=bool(deleted), **cleanup_res.to_res_dict(False))
+            )
+
+        if tasks:
+            _delete_task_events(
+                company_id=company_id,
+                user_id=call.identity.user,
+                tasks=tasks,
+                delete_external_artifacts=True,
+                sync_delete=True,
             )
 
     call.result.data = dict(succeeded=succeeded, failed=failures)
@@ -101,7 +110,7 @@ def start_pipeline(call: APICall, company_id: str, request: StartPipelineRequest
         company_id=company_id,
         user_id=call.identity.user,
         task_id=request.task,
-        hyperparams=hyperparams,
+        hyperparams_overrides=hyperparams,
     )
 
     _update_task_name(task)

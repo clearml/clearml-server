@@ -297,6 +297,7 @@ class WorkerBLL:
                 {
                     "$project": {
                         "name": 1,
+                        "display_name": 1,
                         "next_entry": {"$arrayElemAt": ["$entries", 0]},
                         "num_entries": {"$size": "$entries"},
                     }
@@ -330,6 +331,7 @@ class WorkerBLL:
                 if not info:
                     continue
                 entry.name = info.get("name", None)
+                entry.display_name = info.get("display_name", None)
                 entry.num_tasks = info.get("num_entries", 0)
                 task_id = nested_get(info, ("next_entry", "task"))
                 if task_id:

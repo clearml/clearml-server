@@ -58,7 +58,7 @@ services:
       nofile:
         soft: 65536
         hard: 65536
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.18
+    image: elasticsearch:8.17.0
     restart: unless-stopped
     volumes:
       - c:/opt/clearml/data/elastic_7:/usr/share/elasticsearch/data
@@ -87,7 +87,7 @@ services:
     networks:
       - backend
     container_name: clearml-mongo
-    image: mongo:4.4.29
+    image: mongo:6.0.19
     restart: unless-stopped
     command: --setParameter internalQueryMaxBlockingSortMemoryUsageBytes=196100200
     volumes:
@@ -98,7 +98,7 @@ services:
     networks:
       - backend
     container_name: clearml-redis
-    image: redis:6.2
+    image: redis:7.4.1
     restart: unless-stopped
     volumes:
     - c:/opt/clearml/data/redis:/data
