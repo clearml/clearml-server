@@ -9,6 +9,12 @@
       },
       "plot_data": {
         "type": "binary"
+      },
+      "variant": { 
+        "type": "keyword"
+      },
+      "metric": { 
+        "type": "keyword"
       }
     }
   }
