@@ -99,9 +99,11 @@ def update_report(call: APICall, company_id: str, request: UpdateReportRequest):
         )
 
     now = datetime.utcnow()
-    more_updates = {"last_change": now, "last_changed_by": call.identity.user}
-    if not allowed_for_published:
-        more_updates["last_update"] = now
+    more_updates = {
+        "last_change": now,
+        "last_changed_by": call.identity.user,
+        "last_update": now,
+    }
 
     updated = task.update(upsert=False, **partial_update_dict, **more_updates)
     if not updated:
