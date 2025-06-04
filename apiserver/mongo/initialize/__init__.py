@@ -73,7 +73,9 @@ def init_mongo_data():
             }
             internal_user_emails.add(email.lower())
             revoke = fixed_mode and credentials.get("revoke_in_fixed_mode", False)
-            user_id = _ensure_auth_user(user_data, company_id, log=log, revoke=revoke, internal_user=True)
+            user_id = _ensure_auth_user(
+                user_data, company_id, log=log, revoke=revoke, internal_user=True
+            )
             if credentials.role == Role.user:
                 _ensure_backend_user(user_id, company_id, credentials.display_name)
 
