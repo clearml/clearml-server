@@ -5,7 +5,7 @@ services:
     command:
     - apiserver
     container_name: clearml-apiserver
-    image: allegroai/clearml:latest
+    image: clearml/server:latest
     restart: unless-stopped
     volumes:
     - c:/opt/clearml/logs:/var/log/clearml
@@ -71,7 +71,7 @@ services:
     command:
     - fileserver
     container_name: clearml-fileserver
-    image: allegroai/clearml:latest
+    image: clearml/server:latest
     environment:
       CLEARML__fileserver__delete__allow_batch: "true"
     restart: unless-stopped
@@ -107,7 +107,7 @@ services:
     command:
     - webserver
     container_name: clearml-webserver
-    image: allegroai/clearml:latest
+    image: clearml/server:latest
     restart: unless-stopped
     volumes:
     - c:/clearml/logs:/var/log/clearml
@@ -127,7 +127,7 @@ services:
       - elasticsearch
       - fileserver
     container_name: async_delete
-    image: allegroai/clearml:latest
+    image: clearml/server:latest
     networks:
       - backend
     restart: unless-stopped
