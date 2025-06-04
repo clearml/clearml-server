@@ -199,7 +199,7 @@ class StorageBLL:
         )
         gs_dict = {
             "project": gs._default_project,
-            "credentials_json": gs._default_credentials,
+            "credentials_json": gs._default_credentials or None,
             "buckets": [attr.asdict(b) for b in gs._buckets],
         }
 
