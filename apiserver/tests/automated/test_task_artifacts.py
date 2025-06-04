@@ -32,8 +32,8 @@ class TestTasksArtifacts(TestService):
 
         # test edit
         artifacts = [
-            dict(key="bb", type="str", uri="test1", mode="output"),
-            dict(key="aa", type="int", uri="test2", mode="input"),
+            dict(key="bb", type="str", uri="http://files.clear.ml/test1", mode="output"),
+            dict(key="aa", type="int", uri="http://files.clear.ml/test2", mode="input"),
         ]
         self.api.tasks.edit(task=task, execution={"artifacts": artifacts})
         res = self.api.tasks.get_by_id(task=task).task

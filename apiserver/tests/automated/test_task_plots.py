@@ -14,6 +14,12 @@ class TestTaskPlots(TestService):
 
     @staticmethod
     def _create_task_event(task, iteration, **kwargs):
+        plot_str = kwargs.get("plot_str")
+        if plot_str:
+            if not plot_str.startswith("http"):
+                plot_str = "http://files.clear.ml/" + plot_str
+            kwargs["plot_str"] = '{"source": "' + plot_str + '"}'
+
         return {
             "worker": "test",
             "type": "plot",
