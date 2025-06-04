@@ -12,7 +12,7 @@ from jsonmodels.fields import (
 )
 from jsonmodels.models import Base
 
-from apiserver.apimodels import ListField, EnumField, JsonSerializableMixin
+from apiserver.apimodels import ListField, EnumField, JsonSerializableMixin, ActualEnumField
 from apiserver.config_repo import config
 
 
@@ -130,7 +130,7 @@ class AggregationType(Enum):
 
 class StatItem(Base):
     key = StringField(required=True)
-    aggregation = EnumField(AggregationType, default=AggregationType.avg)
+    aggregation = ActualEnumField(AggregationType, default=AggregationType.avg)
 
 
 class GetStatsRequest(StatsReportBase):
@@ -138,17 +138,24 @@ class GetStatsRequest(StatsReportBase):
         StatItem, required=True, validators=validators.Length(minimum_value=1)
     )
     split_by_variant = BoolField(default=False)
+    split_by_resource = BoolField(default=False)
+
+
+class MetricResourceSeries(Base):
+    name = StringField()
+    values = ListField(float)
 
 
 class AggregationStats(Base):
     aggregation = EnumField(AggregationType)
+    dates = ListField(int)
     values = ListField(float)
+    resource_series = ListField(MetricResourceSeries)
 
 
 class MetricStats(Base):
     metric = StringField()
     variant = StringField()
-    dates = ListField(int)
     stats = ListField(AggregationStats)
 
 

@@ -1,9 +1,3 @@
-import itertools
-from operator import attrgetter
-from typing import Optional, Sequence, Union
-
-from boltons.iterutils import bucketize
-
 from apiserver.apierrors.errors import bad_request
 from apiserver.apimodels.workers import (
     WorkerRequest,
@@ -23,6 +17,7 @@ from apiserver.apimodels.workers import (
     GetActivityReportResponse,
     ActivityReportSeries,
     GetCountRequest,
+    MetricResourceSeries,
 )
 from apiserver.bll.workers import WorkerBLL
 from apiserver.config_repo import config
@@ -163,71 +158,47 @@ def get_activity_report(
 @endpoint(
     "workers.get_stats",
     min_version="2.4",
-    request_data_model=GetStatsRequest,
     response_data_model=GetStatsResponse,
     validate_schema=True,
 )
 def get_stats(call: APICall, company_id, request: GetStatsRequest):
     ret = worker_bll.stats.get_worker_stats(company_id, request)
 
-    def _get_variant_metric_stats(
-        metric: str,
-        agg_names: Sequence[str],
-        stats: Sequence[dict],
-        variant: Optional[str] = None,
-    ) -> MetricStats:
-        stat_by_name = extract_properties_to_lists(agg_names, stats)
-        return MetricStats(
-            metric=metric,
-            variant=variant,
-            dates=stat_by_name["date"],
-            stats=[
-                AggregationStats(aggregation=name, values=aggs)
-                for name, aggs in stat_by_name.items()
-                if name != "date"
-            ],
-        )
-
-    def _get_metric_stats(
-        metric: str, stats: Union[dict, Sequence[dict]], agg_types: Sequence[str]
-    ) -> Sequence[MetricStats]:
-        """
-        Return statistics for a certain metric or a list of statistic for
-        metric variants if break_by_variant was requested
-        """
-        agg_names = ["date"] + list(set(agg_types))
-        if not isinstance(stats, dict):
-            # no variants were requested
-            return [_get_variant_metric_stats(metric, agg_names, stats)]
-
-        return [
-            _get_variant_metric_stats(metric, agg_names, variant_stats, variant)
-            for variant, variant_stats in stats.items()
-        ]
-
-    def _get_worker_metrics(stats: dict) -> Sequence[MetricStats]:
-        """
-        Convert the worker statistics data from the internal format of lists of structs
-        to a more "compact" format for json transfer (arrays of dates and arrays of values)
-        """
-        # removed metrics that were requested but for some reason
-        # do not exist in stats data
-        metrics = [metric for metric in request.items if metric.key in stats]
-
-        aggs_by_metric = bucketize(
-            metrics, key=attrgetter("key"), value_transform=attrgetter("aggregation")
-        )
-
-        return list(
-            itertools.chain.from_iterable(
-                _get_metric_stats(metric, metric_stats, aggs_by_metric[metric])
-                for metric, metric_stats in stats.items()
-            )
+    def _get_agg_stats(
+        aggregation: str,
+        stats: dict,
+    ) -> AggregationStats:
+        resource_series = []
+        if "resource_series" in stats:
+            for name, values in stats["resource_series"].items():
+                resource_series.append(
+                    MetricResourceSeries(
+                        name=name,
+                        values=values
+                    )
+                )
+        return AggregationStats(
+            aggregation=aggregation,
+            dates=stats["dates"],
+            values=stats["values"],
+            resource_series=resource_series,
         )
 
     return GetStatsResponse(
         workers=[
-            WorkerStatistics(worker=worker, metrics=_get_worker_metrics(stats))
-            for worker, stats in ret.items()
+            WorkerStatistics(
+                worker=worker,
+                metrics=[
+                    MetricStats(
+                        metric=metric,
+                        stats=[
+                            _get_agg_stats(aggregation, a_stats)
+                            for aggregation, a_stats in m_stats.items()
+                        ]
+                    )
+                    for metric, m_stats in w_stats.items()
+                ],
+            )
+            for worker, w_stats in ret.items()
         ]
     )

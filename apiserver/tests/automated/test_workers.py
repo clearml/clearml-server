@@ -1,3 +1,4 @@
+import statistics
 import time
 from uuid import uuid4
 from typing import Sequence
@@ -83,7 +84,7 @@ class TestWorkersService(TestService):
         self._check_exists(test_worker, False, tags=["test"])
         self._check_exists(test_worker, False, tags=["-application"])
 
-    def _simulate_workers(self, start: int) -> Sequence[str]:
+    def _simulate_workers(self, start: int, with_gpu: bool = False) -> dict:
         """
         Two workers writing the same metrics. One for 4 seconds. Another one for 2
         The first worker reports a task
@@ -93,20 +94,25 @@ class TestWorkersService(TestService):
         task_id = self._create_running_task(task_name="task-1")
 
         workers = [f"test_{uuid4().hex}", f"test_{uuid4().hex}"]
-        workers_stats = [
+        if with_gpu:
+            gpu_usage = [dict(gpu_usage=[60, 70]), dict(gpu_usage=[40])]
+        else:
+            gpu_usage = [{}, {}]
+
+        worker_stats = [
             (
-                dict(cpu_usage=[10, 20], memory_used=50),
-                dict(cpu_usage=[5], memory_used=30),
+                dict(cpu_usage=[10, 20], memory_used=50, **gpu_usage[0]),
+                dict(cpu_usage=[5], memory_used=30, **gpu_usage[1]),
             )
         ] * 4
-        workers_activity = [
+        worker_activity = [
             (workers[0], workers[1]),
             (workers[0], workers[1]),
             (workers[0],),
             (workers[0],),
         ]
         timestamp = start * 1000
-        for ws, stats in zip(workers_activity, workers_stats):
+        for ws, stats in zip(worker_activity, worker_stats):
             for w, s in zip(ws, stats):
                 data = dict(
                     worker=w,
@@ -118,7 +124,10 @@ class TestWorkersService(TestService):
                 self.api.workers.status_report(**data)
                 timestamp += 60*1000
 
-        return workers
+        return {
+            w: s
+            for w, s in zip(workers, worker_stats[0])
+        }
 
     def _create_running_task(self, task_name):
         task_input = dict(name=task_name, type="testing")
@@ -131,7 +140,7 @@ class TestWorkersService(TestService):
     def test_get_keys(self):
         workers = self._simulate_workers(int(time.time()))
         time.sleep(5)  # give to es time to refresh
-        res = self.api.workers.get_metric_keys(worker_ids=workers)
+        res = self.api.workers.get_metric_keys(worker_ids=list(workers))
         assert {"cpu", "memory"} == set(c.name for c in res["categories"])
         assert all(
             c.metric_keys == ["cpu_usage"] for c in res["categories"] if c.name == "cpu"
@@ -147,7 +156,7 @@ class TestWorkersService(TestService):
 
     def test_get_stats(self):
         start = int(time.time())
-        workers = self._simulate_workers(start)
+        workers = self._simulate_workers(start, with_gpu=True)
 
         time.sleep(5)  # give to ES time to refresh
         from_date = start
@@ -157,49 +166,72 @@ class TestWorkersService(TestService):
             items=[
                 dict(key="cpu_usage", aggregation="avg"),
                 dict(key="cpu_usage", aggregation="max"),
+                dict(key="gpu_usage", aggregation="avg"),
+                dict(key="gpu_usage", aggregation="max"),
                 dict(key="memory_used", aggregation="max"),
-                dict(key="memory_used", aggregation="min"),
             ],
             from_date=from_date,
             to_date=to_date,
             # split_by_variant=True,
             interval=1,
-            worker_ids=workers,
+            worker_ids=list(workers),
         )
-        self.assertWorkersInStats(workers, res.workers)
+        self.assertWorkersInStats(list(workers), res.workers)
         for worker in res.workers:
             self.assertEqual(
                 set(metric.metric for metric in worker.metrics),
-                {"cpu_usage", "memory_used"},
+                {"cpu_usage", "gpu_usage", "memory_used"},
             )
 
         for worker in res.workers:
+            worker_id = worker.worker
             for metric, metric_stats in zip(
-                worker.metrics, ({"avg", "max"}, {"max", "min"})
+                worker.metrics, ({"avg", "max"}, {"avg", "max"}, {"max"})
             ):
+                metric_name = metric.metric
                 self.assertEqual(
                     set(stat.aggregation for stat in metric.stats), metric_stats
                 )
-                self.assertTrue(11 >= len(metric.dates) >= 10)
+                for stat in metric.stats:
+                    expected = workers[worker_id][metric_name]
+                    self.assertTrue(11 >= len(stat.dates) >= 10)
+                    self.assertFalse(stat.get("resource_series"))
+                    agg = stat.aggregation
+                    if isinstance(expected, list):
+                        if agg == "avg":
+                            val = statistics.mean(expected)
+                        elif agg == "min":
+                            val = min(expected)
+                        else:
+                            val = max(expected)
+                    else:
+                        val = expected
+                    self.assertEqual(set(stat["values"]), {val, 0})
 
-        # split by variants
+        # split by resources
         res = self.api.workers.get_stats(
-            items=[dict(key="cpu_usage", aggregation="avg")],
+            items=[dict(key="gpu_usage", aggregation="avg")],
             from_date=from_date,
             to_date=to_date,
-            split_by_variant=True,
+            split_by_resource=True,
             interval=1,
-            worker_ids=workers,
+            worker_ids=list(workers),
         )
-        self.assertWorkersInStats(workers, res.workers)
+        self.assertWorkersInStats(list(workers), res.workers)
 
         for worker in res.workers:
+            worker_id = worker.worker
             for metric in worker.metrics:
-                self.assertEqual(
-                    set(metric.variant for metric in worker.metrics),
-                    {"0", "1"} if worker.worker == workers[0] else {"0"},
-                )
-                self.assertTrue(11 >= len(metric.dates) >= 10)
+                metric_name = metric.metric
+                for stat in metric.stats:
+                    expected = workers[worker_id][metric_name]
+                    if metric_name.startswith("gpu") and len(expected) > 1:
+                        resource_series = stat.get("resource_series")
+                        self.assertEqual(len(resource_series), len(expected))
+                        for rs, value in zip(resource_series, expected):
+                            self.assertEqual(set(rs["values"]), {value, 0})
+                    else:
+                        self.assertEqual(stat.get("resource_series"), [])
 
         res = self.api.workers.get_stats(
             items=[dict(key="cpu_usage", aggregation="avg")],
