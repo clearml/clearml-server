@@ -43,6 +43,9 @@ class RequestHandlers:
             settings["domain"] = domain
         return settings
 
+    def _get_identity_from_encoded_token(self, encoded: str):
+        return Token.decode_identity(encoded)
+
     def before_request(self):
         if request.method == "OPTIONS":
             return "", 200
@@ -105,7 +108,7 @@ class RequestHandlers:
                         # Setting a cookie, let's try to figure out the company
                         # noinspection PyBroadException
                         try:
-                            company = Token.decode_identity(value).company
+                            company = self._get_identity_from_encoded_token(value).company
                         except Exception:
                             pass
 
