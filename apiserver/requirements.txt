@@ -22,6 +22,7 @@ luqum>=0.10.0
 mongoengine==0.29.1
 nested_dict>=1.61
 packaging==20.3
+pillow>=10.3.0  # fix vulnerability derived from clearml 1.18.0
 psutil>=5.6.5
 pyhocon>=0.3.35r
 pyjwt>=2.4.0
@@ -30,7 +31,7 @@ python-rapidjson>=0.6.3
 redis==5.2.1
 requests>=2.13.0
 semantic_version>=2.8.3,<3
-setuptools>=65.5.1
+setuptools>=70.0.0
 six
 validators>=0.12.4
 urllib3>=1.26.18
