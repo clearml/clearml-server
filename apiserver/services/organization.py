@@ -225,6 +225,18 @@ def prepare_download_for_get_all(
     call.result.data = dict(prepare_id=call.id)
 
 
+_dangerous_chars = ("=", "+", "-", "@", "\t", "\r")
+
+def _sanitize_csv(value: str) -> str:
+    """
+    Prevent csv injection:
+    If the string starts with any of the chars that Excel
+    interpret as a special char then prepend it with a single quote
+    """
+    if value and value.startswith(_dangerous_chars):
+        return f"'{value}"
+    return value
+
 @endpoint("organization.download_for_get_all")
 def download_for_get_all(call: APICall, company, request: DownloadForGetAllRequest):
     request_data = redis.get(f"get_all_download_{request.prepare_id}")
@@ -275,7 +287,7 @@ def download_for_get_all(call: APICall, company, request: DownloadForGetAllReque
             if values and isinstance(val, Hashable):
                 val = values.get(val, val)
 
-            return str(val)
+            return _sanitize_csv(str(val))
 
         def get_projected_fields(data: dict) -> Sequence[str]:
             return [
