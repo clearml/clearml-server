@@ -45,6 +45,10 @@ def get_last_server_version() -> Version:
 
 
 def _ensure_mongodb_version():
+    if not config.get("apiserver.mongo.ensure_db_version_on_startup", True):
+        return
+
+    log.info("Checking DB version")
     db: pymongo.database.Database = get_db(Database.backend)
     db_version = db.client.server_info()["version"]
     if not db_version.startswith("6.0"):
@@ -53,6 +57,7 @@ def _ensure_mongodb_version():
 
     res = db.client.admin.command({"getParameter": 1, "featureCompatibilityVersion": 1})
     version = nested_get(res, ("featureCompatibilityVersion", "version"))
+    log.info(f"DB version: {version}")
     if version == "6.0":
         return
     if version != "5.0":
