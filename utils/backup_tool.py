@@ -679,11 +679,11 @@ def setup_schedule(
     num, unit = int(backup_period[:-1]), backup_period[-1]
     match unit:
         case 'm':
-            job.minute.every(num)
+            job.setall(f'*/{num} * * * *')
         case 'h':
-            job.hour.every(num)
+            job.setall(f'0 */{num} * * *')
         case 'd':
-            job.day.every(num)
+            job.setall(f'0 0 */{num} * *')
         case _:
             raise ValueError(f"Invalid backup period unit: {unit}. Must be one of 'm', 'h', 'd'.")
     cron.write()
