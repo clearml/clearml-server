@@ -64,8 +64,9 @@ EOF
 
     export NGINX_APISERVER_ADDR=${NGINX_APISERVER_ADDRESS:-http://apiserver:8008}
     export NGINX_FILESERVER_ADDR=${NGINX_FILESERVER_ADDRESS:-http://fileserver:8081}
+    export NGINX_WEBSERVER_PORT=${NGINX_WEBSERVER_PORT:-80}
     export COMMENT_IPV6_LISTEN=$([ "$DISABLE_NGINX_IPV6" = "true" ] && echo "#" || echo "")
-    envsubst '${COMMENT_IPV6_LISTEN} ${NGINX_APISERVER_ADDR} ${NGINX_FILESERVER_ADDR}' < /etc/nginx/clearml.conf.template > /etc/nginx/sites-enabled/default
+    envsubst '${NGINX_WEBSERVER_PORT} ${COMMENT_IPV6_LISTEN} ${NGINX_APISERVER_ADDR} ${NGINX_FILESERVER_ADDR}' < /etc/nginx/clearml.conf.template > /etc/nginx/sites-enabled/default
 
     if [[ -n "${CLEARML_SERVER_SUB_PATH}" ]]; then
       mkdir -p /etc/nginx/default.d/
@@ -99,7 +100,7 @@ elif [[ ${SERVER_TYPE} == "fileserver" ]]; then
         -t "${FILESERVER_GUNICORN_TIMEOUT:-600}" --bind="${FILESERVER_GUNICORN_BIND:-0.0.0.0:8081}" \
         $MAX_REQUESTS fileserver:app
     else
-      python3 fileserver.py
+        python3 fileserver.py
     fi
 
 else
