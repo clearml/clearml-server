@@ -87,14 +87,16 @@ class QueueMetrics:
 
         return logged
 
-    def _log_current_metrics(self, company_id: str, queue_ids=Sequence[str]):
+    def _log_current_metrics(self, company_id: str, queue_ids: Sequence[str]):
         query = dict(company=company_id)
         if queue_ids:
+            # noinspection PyTypeChecker
             query["id__in"] = list(queue_ids)
         queues = Queue.objects(**query)
         self.log_queue_metrics_to_es(company_id, queues=list(queues))
 
     def _search_company_metrics(self, company_id: str, es_req: dict) -> dict:
+        # noinspection PyTypeChecker
         return self.es.search(
             index=f"{self._queue_metrics_prefix_for_company(company_id)}*", body=es_req,
         )
@@ -154,6 +156,7 @@ class QueueMetrics:
         to_date: float,
         interval: int,
         queue_ids: Sequence[str],
+        metrics_per_queue: bool,
         refresh: bool = False,
     ) -> dict:
         """
@@ -195,7 +198,7 @@ class QueueMetrics:
             for d in res["aggregations"]["dates"]["buckets"]
             if d["doc_count"] > 0
         ]
-        if queue_ids:
+        if metrics_per_queue:
             return self._datetime_histogram_per_queue(date_metrics)
 
         return self._average_datetime_histogram(date_metrics)

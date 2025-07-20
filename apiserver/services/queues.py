@@ -28,6 +28,7 @@ from apiserver.bll.queue import QueueBLL
 from apiserver.bll.queue.queue_bll import MOVE_FIRST, MOVE_LAST
 from apiserver.bll.workers import WorkerBLL
 from apiserver.config_repo import config
+from apiserver.database.model.queue import Queue
 from apiserver.database.model.task.task import Task, TaskStatus
 from apiserver.service_repo import APICall, endpoint
 from apiserver.services.utils import (
@@ -284,12 +285,30 @@ def move_task_to_back(call: APICall, company_id, request: TaskRequest):
 def get_queue_metrics(
     call: APICall, company_id, request: GetMetricsRequest
 ) -> GetMetricsResponse:
+    empty_response = GetMetricsResponse(queues=[])
+
+    queue_query = dict(company=company_id)
+    if request.queue_ids:
+        queue_query["id__in"] = request.queue_ids
+        metrics_per_queue = True
+    else:
+        metrics_per_queue = False
+
+    queue_ids = list(
+        Queue.objects(Q(**queue_query) & _hidden_query(call.data)).scalar(
+            "id"
+        )
+    )
+    if not queue_ids:
+        return empty_response
+
     ret = queue_bll.metrics.get_queue_metrics(
         company_id=company_id,
         from_date=request.from_date,
         to_date=request.to_date,
         interval=request.interval,
-        queue_ids=request.queue_ids,
+        queue_ids=queue_ids,
+        metrics_per_queue=metrics_per_queue,
         refresh=request.refresh,
     )
 
