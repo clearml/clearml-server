@@ -85,7 +85,9 @@ def get_entities_count(call: APICall, company, request: EntitiesCountRequest):
         "tasks": Task,
         "models": Model,
         "pipelines": Project,
+        "pipeline_runs": Task,
         "datasets": Project,
+        "dataset_versions": Task,
         "reports": Task,
     }
     ret = {}
@@ -96,6 +98,11 @@ def get_entities_count(call: APICall, company, request: EntitiesCountRequest):
 
         if field == "reports":
             data["type"] = TaskType.report
+        elif field == "pipeline_runs":
+            data["type"] = TaskType.controller
+        elif field == "dataset_versions":
+            data["type"] = TaskType.data_processing
+        if field in ("reports", "pipeline_runs", "dataset_versions"):
             data["include_subprojects"] = True
 
         if request.active_users:
@@ -119,7 +126,13 @@ def get_entities_count(call: APICall, company, request: EntitiesCountRequest):
         query = Q()
         if (
             entity_cls in (Project, Task)
-            and field not in ("reports", "pipelines", "datasets")
+            and field not in (
+                "reports",
+                "pipelines",
+                "pipeline_runs",
+                "datasets",
+                "dataset_versions",
+            )
             and not request.search_hidden
         ):
             query &= Q(system_tags__ne=EntityVisibility.hidden.value)
