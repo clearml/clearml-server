@@ -198,13 +198,14 @@ class QueueMetrics:
             for d in res["aggregations"]["dates"]["buckets"]
             if d["doc_count"] > 0
         ]
+        chart_start = (from_date - interval) * 1000
         if metrics_per_queue:
-            return self._datetime_histogram_per_queue(date_metrics)
+            return self._datetime_histogram_per_queue(date_metrics, chart_start)
 
-        return self._average_datetime_histogram(date_metrics)
+        return self._average_datetime_histogram(date_metrics, chart_start)
 
     @classmethod
-    def _datetime_histogram_per_queue(cls, date_metrics: Sequence[dict]) -> dict:
+    def _datetime_histogram_per_queue(cls, date_metrics: Sequence[dict], chart_start=None) -> dict:
         """
         Build datetime histogram per queue from datetime histogram where every
         bucket contains all the queues metrics
@@ -212,13 +213,15 @@ class QueueMetrics:
         queues_data = defaultdict(list)
         for date_data in date_metrics:
             timestamp = date_data["timestamp"]
+            if chart_start and timestamp < chart_start:
+                continue
             for queue, metrics in date_data["queue_metrics"].items():
                 queues_data[queue].append({"date": timestamp, **metrics})
 
         return queues_data
 
     @classmethod
-    def _average_datetime_histogram(cls, date_metrics: Sequence[dict]) -> dict:
+    def _average_datetime_histogram(cls, date_metrics: Sequence[dict], chart_start=None) -> dict:
         """
         Calculate weighted averages and total count for each bucket of date_metrics histogram.
         If for any queue the data is missing then take it from the previous bucket
@@ -232,6 +235,12 @@ class QueueMetrics:
                 **date_metrics,
                 **{k: v for k, v in last_values.items() if k not in date_metrics},
             }
+            for k, v in date_metrics.items():
+                last_values[k] = v
+
+            timestamp = date_data["timestamp"]
+            if chart_start and timestamp < chart_start:
+                continue
 
             total_length = sum(m["queue_length"] for m in queue_metrics.values())
             if total_length:
@@ -249,9 +258,6 @@ class QueueMetrics:
                     queue_length=total_length,
                 )
             )
-
-            for k, v in date_metrics.items():
-                last_values[k] = v
 
         return dict(total=queues_total)
 
