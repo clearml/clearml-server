@@ -26,7 +26,7 @@ pillow>=10.3.0  # fix vulnerability derived from clearml 1.18.0
 psutil>=5.6.5
 pyhocon>=0.3.35r
 pyjwt>=2.4.0
-pymongo==4.10.1
+pymongo==4.12.1
 python-rapidjson>=0.6.3
 redis==5.2.1
 requests>=2.13.0
