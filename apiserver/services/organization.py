@@ -124,12 +124,22 @@ def get_entities_count(call: APICall, company, request: EntitiesCountRequest):
         ):
             query &= Q(system_tags__ne=EntityVisibility.hidden.value)
 
-        ret[field] = entity_cls.get_count(
-            company=company,
-            query_dict=data,
-            query=query,
-            allow_public=request.allow_public,
-        )
+        if not request.limit:
+            ret[field] = entity_cls.get_count(
+                company=company,
+                query_dict=data,
+                query=query,
+                allow_public=request.allow_public,
+            )
+        else:
+            query = entity_cls.get_combined_query(
+                company=company,
+                query_dict=data,
+                query=query,
+                allow_public=request.allow_public,
+            )
+            ids = entity_cls.objects(query).limit(request.limit).scalar("id")
+            ret[field] = len(ids)
 
     call.result.data = ret
 

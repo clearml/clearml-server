@@ -1011,7 +1011,7 @@ class GetMixin(PropsMixin):
         query: Q = None,
         allow_public=False,
     ) -> int:
-        _query = cls._get_combined_query(
+        _query = cls.get_combined_query(
             company=company,
             query_dict=query_dict,
             query_options=query_options,
@@ -1021,7 +1021,7 @@ class GetMixin(PropsMixin):
         return cls.objects(_query).count()
 
     @classmethod
-    def _get_combined_query(
+    def get_combined_query(
         cls,
         company,
         query_dict: dict = None,
@@ -1087,7 +1087,7 @@ class GetMixin(PropsMixin):
                 if override_collation:
                     break
 
-        _query = cls._get_combined_query(
+        _query = cls.get_combined_query(
             company=company,
             query_dict=query_dict,
             query_options=query_options,

@@ -28,6 +28,7 @@ class EntitiesCountRequest(models.Base):
     active_users = fields.ListField(str)
     search_hidden = fields.BoolField(default=False)
     allow_public = fields.BoolField(default=True)
+    limit = fields.IntField()
 
 
 class EntityType(StringEnum):
