@@ -23,6 +23,7 @@ class Project(AttributedDocument):
             "path",
             ("company", "name"),
             ("company", "basename"),
+            ("company", "parent", "system_tags", "featured", "last_update"),
             {
                 "name": "%s.project.main_text_index" % Database.backend,
                 "fields": ["$name", "$id", "$description"],

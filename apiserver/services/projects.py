@@ -212,7 +212,6 @@ def get_all_ex(call: APICall, company_id: str, request: ProjectsGetRequest):
                 company=company_id,
                 project_ids=project_ids,
                 filter_=stats_filter,
-                specific_state=request.stats_for_state,
                 users=request.active_users,
             )
 
@@ -233,7 +232,6 @@ def get_all_ex(call: APICall, company_id: str, request: ProjectsGetRequest):
             stats, children = project_bll.get_project_stats(
                 company=company_id,
                 project_ids=project_ids,
-                specific_state=request.stats_for_state,
                 include_children=request.stats_with_children,
                 search_hidden=stats_search_hidden,
                 filter_=stats_filter,

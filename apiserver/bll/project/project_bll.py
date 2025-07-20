@@ -1,7 +1,6 @@
-from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import reduce
-from itertools import groupby, chain
+from itertools import chain
 from operator import itemgetter
 from typing import (
     Sequence,
@@ -29,7 +28,6 @@ from apiserver.database.model.model import Model
 from apiserver.database.model.project import Project
 from apiserver.database.model.task.task import Task, TaskStatus, external_task_types
 from apiserver.database.utils import get_options, get_company_or_none_constraint
-from apiserver.utilities.dicts import nested_get
 from .sub_projects import (
     _reposition_project_with_children,
     _ensure_project,
@@ -343,86 +341,65 @@ class ProjectBLL:
 
         return project
 
-    archived_tasks_cond = {"$in": [EntityVisibility.archived.value, "$system_tags"]}
-    visibility_states = [EntityVisibility.archived, EntityVisibility.active]
+    task_count_statuses = get_options(TaskStatus)
 
     @classmethod
-    def make_projects_get_all_pipelines(
+    def make_projects_get_all_pipeline(
         cls,
         company_id: str,
         project_ids: Sequence[str],
-        specific_state: Optional[EntityVisibility] = None,
         filter_: Mapping[str, Any] = None,
         users: Sequence[str] = None,
-    ) -> Tuple[Sequence, Sequence]:
-        archived = EntityVisibility.archived.value
+    ) -> Sequence:
+        def add_state_to_filter(f: Mapping[str, Any]) -> Mapping[str, Any]:
+            f = f or {}
+            new_f = {k: v for k, v in f.items() if k != "system_tags"}
+            system_tags = [
+                tag
+                for tag in f.get("system_tags", [])
+                if tag
+                not in (
+                    EntityVisibility.archived.value,
+                    f"-{EntityVisibility.archived.value}",
+                )
+            ]
+
+            system_tags.append(f"-{EntityVisibility.archived.value}")
+            new_f["system_tags"] = system_tags
+
+            return new_f
 
         def project_task_fields():
             return {
                 "$project": {
                     "project": 1,
                     "status": 1,
-                    "system_tags": 1,
                     "started": 1,
                     "completed": 1,
                 }
             }
 
-        def ensure_valid_fields():
-            """
-            Make sure system tags is always an array (required by subsequent $in in archived_tasks_cond
-            """
+        def task_status_counts_subquery() -> dict:
+            def get_status_condition(status) -> dict:
+                if status == TaskStatus.unknown:
+                    return {"$eq": [{"$ifNull": ["$status", status]}, status]}
+
+                return {"$eq": ["$status", status]}
+
             return {
-                "$addFields": {
-                    "system_tags": {
+                status: {
+                    "$sum": {
                         "$cond": {
-                            "if": {"$ne": [{"$type": "$system_tags"}, "array"]},
-                            "then": [],
-                            "else": "$system_tags",
+                            "if": get_status_condition(status),
+                            "then": 1,
+                            "else": 0,
                         }
-                    },
-                    "status": {"$ifNull": ["$status", "unknown"]},
+                    }
                 }
+                for status in cls.task_count_statuses
             }
 
-        status_count_pipeline = [
-            # count tasks per project per status
-            {
-                "$match": cls.get_match_conditions(
-                    company=company_id,
-                    project_ids=project_ids,
-                    filter_=filter_,
-                    users=users,
-                )
-            },
-            project_task_fields(),
-            ensure_valid_fields(),
-            {
-                "$group": {
-                    "_id": {
-                        "project": "$project",
-                        "status": "$status",
-                        archived: cls.archived_tasks_cond,
-                    },
-                    "count": {"$sum": 1},
-                }
-            },
-            # for each project, create a list of (status, count, archived)
-            {
-                "$group": {
-                    "_id": "$_id.project",
-                    "counts": {
-                        "$push": {
-                            "status": "$_id.status",
-                            "count": "$count",
-                            archived: "$_id.%s" % archived,
-                        }
-                    },
-                }
-            },
-        ]
-
-        def completed_after_subquery(additional_cond, time_thresh: datetime):
+        def completed_after_subquery(time_thresh: datetime):
             return {
                 # the sum of
                 "$sum": {
@@ -433,7 +410,6 @@ class ProjectBLL:
                             "$and": [
                                 "$completed",
                                 {"$gt": ["$completed", time_thresh]},
-                                additional_cond,
                                 {
                                     "$not": {
                                         "$in": [
@@ -454,18 +430,10 @@ class ProjectBLL:
                 }
             }
 
-        def max_started_subquery(condition):
-            return {
-                "$max": {
-                    "$cond": {
-                        "if": condition,
-                        "then": "$started",
-                        "else": datetime.min,
-                    }
-                }
-            }
+        def max_started_subquery():
+            return {"$max": "$started"}
 
-        def runtime_subquery(additional_cond):
+        def runtime_subquery():
             return {
                 # the sum of
                 "$sum": {
@@ -477,7 +445,6 @@ class ProjectBLL:
                                 "$started",
                                 "$completed",
                                 {"$gt": ["$completed", "$started"]},
-                                additional_cond,
                             ]
                         },
                         # then: floor((completed - started) / 1000)
@@ -494,46 +461,7 @@ class ProjectBLL:
                 }
             }
 
-        group_step = {"_id": "$project"}
         time_thresh = datetime.utcnow() - timedelta(hours=24)
-        for state in cls.visibility_states:
-            if specific_state and state != specific_state:
-                continue
-            cond = (
-                cls.archived_tasks_cond
-                if state == EntityVisibility.archived
-                else {"$not": cls.archived_tasks_cond}
-            )
-            group_step[state.value] = runtime_subquery(cond)
-            group_step[f"{state.value}_recently_completed"] = completed_after_subquery(
-                cond, time_thresh=time_thresh
-            )
-            group_step[f"{state.value}_max_task_started"] = max_started_subquery(cond)
-
-        def add_state_to_filter(f: Mapping[str, Any]) -> Mapping[str, Any]:
-            if not specific_state:
-                return f
-
-            f = f or {}
-            new_f = {k: v for k, v in f.items() if k != "system_tags"}
-            system_tags = [
-                tag
-                for tag in f.get("system_tags", [])
-                if tag
-                not in (
-                    EntityVisibility.archived.value,
-                    f"-{EntityVisibility.archived.value}",
-                )
-            ]
-
-            if specific_state == EntityVisibility.archived:
-                system_tags.append(EntityVisibility.archived.value)
-            else:
-                system_tags.append(f"-{EntityVisibility.archived.value}")
-            new_f["system_tags"] = system_tags
-
-            return new_f
-
         runtime_pipeline = [
             # only count run time for these types of tasks
             {
@@ -545,14 +473,21 @@ class ProjectBLL:
                 )
             },
             project_task_fields(),
-            ensure_valid_fields(),
             {
                 # for each project
-                "$group": group_step
+                "$group": {
+                    "_id": "$project",
+                    "total_runtime": runtime_subquery(),
+                    "recently_completed": completed_after_subquery(
+                        time_thresh=time_thresh
+                    ),
+                    "max_task_started": max_started_subquery(),
+                    **task_status_counts_subquery(),
+                }
             },
         ]
 
-        return status_count_pipeline, runtime_pipeline
+        return runtime_pipeline
 
     T = TypeVar("T")
 
@@ -754,7 +689,6 @@ class ProjectBLL:
         cls,
         company: str,
         project_ids: Sequence[str],
-        specific_state: Optional[EntityVisibility] = None,
         include_children: bool = True,
         search_hidden: bool = False,
         filter_: Mapping[str, Any] = None,
@@ -774,50 +708,11 @@ class ProjectBLL:
             )
             project_ids_with_children |= children_ids
 
-        status_count_pipeline, runtime_pipeline = cls.make_projects_get_all_pipelines(
+        runtime_pipeline = cls.make_projects_get_all_pipeline(
             company,
             project_ids=list(project_ids_with_children),
-            specific_state=specific_state,
             filter_=filter_,
             users=users,
-        )
-
-        default_counts = dict.fromkeys(get_options(TaskStatus), 0)
-
-        def set_default_count(entry):
-            return dict(default_counts, **entry)
-
-        status_count = defaultdict(lambda: {})
-        key = itemgetter(EntityVisibility.archived.value)
-        for result in Task.aggregate(status_count_pipeline):
-            for k, group in groupby(sorted(result["counts"], key=key), key):
-                section = (
-                    EntityVisibility.archived if k else EntityVisibility.active
-                ).value
-                status_count[result["_id"]][section] = set_default_count(
-                    {
-                        count_entry["status"]: count_entry["count"]
-                        for count_entry in group
-                    }
-                )
-
-        def sum_status_count(
-            a: Mapping[str, Mapping], b: Mapping[str, Mapping]
-        ) -> Dict[str, dict]:
-            return {
-                section: {
-                    status: nested_get(a, (section, status), default=0)
-                    + nested_get(b, (section, status), default=0)
-                    for status in set(a.get(section, {})) | set(b.get(section, {}))
-                }
-                for section in set(a) | set(b)
-            }
-
-        status_count = cls.aggregate_project_data(
-            func=sum_status_count,
-            project_ids=project_ids,
-            child_projects=child_projects,
-            data=status_count,
         )
 
         runtime = {
@@ -828,12 +723,16 @@ class ProjectBLL:
         def sum_runtime(
             a: Mapping[str, dict], b: Mapping[str, dict]
         ) -> Dict[str, dict]:
-            return {
-                section: a.get(section, 0) + b.get(section, 0)
-                if not section.endswith("max_task_started")
-                else max(a.get(section) or datetime.min, b.get(section) or datetime.min)
-                for section in set(a) | set(b)
-            }
+            ret = {}
+            for key in set(a) | set(b):
+                if key == "max_task_started":
+                    val = max(a.get(key) or datetime.min, b.get(key) or datetime.min)
+                else:
+                    val = a.get(key, 0) + b.get(key, 0)
+
+                ret[key] = val
+
+            return ret
 
         runtime = cls.aggregate_project_data(
             func=sum_runtime,
@@ -842,39 +741,28 @@ class ProjectBLL:
             data=runtime,
         )
 
-        def get_status_counts(project_id, section):
+        def get_project_info(project_id):
             project_runtime = runtime.get(project_id, {})
-            project_section_statuses = nested_get(
-                status_count, (project_id, section), default=default_counts
-            )
 
             def get_time_or_none(value):
                 return value if value != datetime.min else None
 
+            status_counts = {
+                status: project_runtime.get(status, 0)
+                for status in cls.task_count_statuses
+            }
             return {
-                "status_count": project_section_statuses,
-                "total_tasks": sum(project_section_statuses.values()),
-                "total_runtime": project_runtime.get(section, 0),
-                "completed_tasks_24h": project_runtime.get(
-                    f"{section}_recently_completed", 0
-                ),
+                "status_count": status_counts,
+                "total_tasks": sum(status_counts.values()),
+                "total_runtime": project_runtime.get("total_runtime", 0),
+                "completed_tasks_24h": project_runtime.get("recently_completed", 0),
                 "last_task_run": get_time_or_none(
-                    project_runtime.get(f"{section}_max_task_started", datetime.min)
+                    project_runtime.get("max_task_started", datetime.min)
                 ),
             }
-
-        report_for_states = [
-            s
-            for s in cls.visibility_states
-            if not specific_state or specific_state == s
-        ]
 
         stats = {
-            project: {
-                task_state.value: get_status_counts(project, task_state.value)
-                for task_state in report_for_states
-            }
-            for project in project_ids
+            project: {"active": get_project_info(project)} for project in project_ids
         }
 
         return stats, cls._get_children_info(project_ids, child_projects)
@@ -1171,6 +1059,7 @@ class ProjectBLL:
             if len(or_conditions) == 1:
                 conditions.update(next(iter(or_conditions)))
             else:
+                # noinspection PyTypeChecker
                 conditions["$and"] = [c for c in or_conditions]
 
         return conditions
@@ -1244,7 +1133,6 @@ class ProjectBLL:
         company: str,
         project_ids: Sequence[str],
         filter_: Mapping[str, Any] = None,
-        specific_state: Optional[EntityVisibility] = None,
         users: Sequence[str] = None,
     ) -> Dict[str, dict]:
         """
@@ -1255,19 +1143,13 @@ class ProjectBLL:
         if not project_ids:
             return {}
 
-        if specific_state:
-            filter_ = filter_ or {}
-            system_tags_filter = filter_.get("system_tags", [])
-            archived = EntityVisibility.archived.value
-            non_archived = f"-{EntityVisibility.archived.value}"
-            if not any(t in system_tags_filter for t in (archived, non_archived)):
-                filter_ = {k: v for k, v in filter_.items()}
-                filter_["system_tags"] = [
-                    archived
-                    if specific_state == EntityVisibility.archived
-                    else non_archived,
-                    *system_tags_filter,
-                ]
+        filter_ = filter_ or {}
+        system_tags_filter = filter_.get("system_tags", [])
+        archived = EntityVisibility.archived.value
+        non_archived = f"-{EntityVisibility.archived.value}"
+        if not any(t in system_tags_filter for t in (archived, non_archived)):
+            filter_ = {k: v for k, v in filter_.items()}
+            filter_["system_tags"] = [non_archived, *system_tags_filter]
 
         pipeline = [
             {
