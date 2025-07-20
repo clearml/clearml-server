@@ -7,6 +7,7 @@ from apiserver.database.model.base import GetMixin
 
 
 class Project(AttributedDocument):
+    min_name_length = 3
 
     get_all_query_options = GetMixin.QueryParameterOptions(
         pattern_fields=("name", "basename", "description"),
@@ -35,7 +36,7 @@ class Project(AttributedDocument):
     name = StrippedStringField(
         required=True,
         unique_with=AttributedDocument.company.name,
-        min_length=3,
+        min_length=min_name_length,
         sparse=True,
     )
     basename = StrippedStringField(required=True)

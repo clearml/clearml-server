@@ -32,7 +32,7 @@ def _validate_project_name(project_name: str, raise_if_empty=True) -> Tuple[str,
 
 def _get_basename_from_name(name: str, raise_on_blank: bool = True) -> str:
     basename = name.split("/")[-1].strip()
-    if not basename and raise_on_blank:
+    if raise_on_blank and (Project.min_name_length > len(basename)):
         raise errors.bad_request.ValidationError("Project name cannot be blank")
 
     return basename
