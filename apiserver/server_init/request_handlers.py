@@ -46,6 +46,15 @@ class RequestHandlers:
     def _get_identity_from_encoded_token(self, encoded: str):
         return Token.decode_identity(encoded)
 
+    def _set_company_cookie_overrides(self, company_id: str, cookie_kwargs: dict):
+        try:
+            # use no default value to allow setting a null domain as well
+            cookie_kwargs["domain"] = config.get(
+                f"apiserver.auth.cookies_domain_override.{company_id}"
+            )
+        except KeyError:
+            pass
+
     def before_request(self):
         if request.method == "OPTIONS":
             return "", 200
@@ -113,13 +122,7 @@ class RequestHandlers:
                             pass
 
                     if company:
-                        try:
-                            # use no default value to allow setting a null domain as well
-                            kwargs["domain"] = config.get(
-                                f"apiserver.auth.cookies_domain_override.{company}"
-                            )
-                        except KeyError:
-                            pass
+                        self._set_company_cookie_overrides(company, kwargs)
 
                     response.set_cookie(key, value, **kwargs)
 
