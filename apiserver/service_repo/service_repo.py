@@ -39,7 +39,7 @@ class ServiceRepo(object):
     """If the check is set, parsing will fail for endpoint request with the version that is grater than the current 
     maximum """
 
-    _max_version = PartialVersion("2.32")
+    _max_version = PartialVersion("2.33")
     """ Maximum version number (the highest min_version value across all endpoints) """
 
     _endpoint_exp = (
