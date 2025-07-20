@@ -9,7 +9,6 @@ apt-get install -y python3-setuptools python3-dev build-essential nginx gettext 
 
 python3 -m ensurepip
 python3 -m pip install --upgrade pip
-python3 -m pip install -r /opt/clearml/fileserver/requirements.txt
 python3 -m pip install -r /opt/clearml/apiserver/requirements.txt
 mkdir -p /opt/clearml/log
 mkdir -p /opt/clearml/config
