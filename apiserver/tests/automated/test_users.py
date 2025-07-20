@@ -75,7 +75,7 @@ class TestUsersService(TestService):
         tests = [
             ({"a": 0}, {"a": 0}),
             ({"b": 1}, {"a": 0, "b": 1}),
-            ({"section": {"a": 2}}, {"a": 0, "b": 1, "section": {"a": 2}}),
+            ({"section.a": 2}, {"a": 0, "b": 1, "section": {"a": 2}}),
         ]
         self._test_update(self.new_user(), tests)
 

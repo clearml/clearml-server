@@ -1,4 +1,4 @@
-from jsonmodels.fields import StringField
+from jsonmodels.fields import StringField, BoolField
 from jsonmodels.models import Base
 
 from apiserver.apimodels import DictField
@@ -19,3 +19,4 @@ class CreateRequest(Base):
 
 class SetPreferencesRequest(Base):
     preferences = DictField(required=True)
+    return_updated = BoolField(default=True)

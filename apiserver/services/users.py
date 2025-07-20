@@ -197,10 +197,14 @@ def get_preferences(call: APICall, company_id, _):
 def set_preferences(call: APICall, company_id, request: SetPreferencesRequest):
     changes = request.preferences
 
-    def invalid_key(_, key, __):
+    def invalid_key(path, key, __):
+        """
+        key cannot start with "$"
+        only top level keys may contain "."
+        """
         if not isinstance(key, str):
             return True
-        elif key.startswith("$") or "." in key:
+        elif key.startswith("$") or (path and "." in key):
             raise errors.bad_request.FieldsValueError(
                 f"Key {key} is invalid. Keys cannot start with '$' or contain '.'."
             )
@@ -229,7 +233,11 @@ def set_preferences(call: APICall, company_id, request: SetPreferencesRequest):
                 upsert=False, preferences=dumps(new_preferences)
             )
 
+    fields = {}
+    if updated and request.return_updated:
+        fields["preferences"] = new_preferences
+
     return {
         "updated": updated,
-        "fields": {"preferences": new_preferences} if updated else {},
+        "fields": fields,
     }
