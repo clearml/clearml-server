@@ -100,7 +100,7 @@ def authorize_credentials(auth_data, service, action, call):
                     "endpoint not allowed for guest"
                 )
 
-            query = Q(id=fixed_user.user_id)
+            query = Q(id=fixed_user.id)
 
     with translate_errors_context("authorizing request"):
         user = User.objects(query).first()

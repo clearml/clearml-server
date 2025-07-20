@@ -88,18 +88,12 @@ def init_mongo_data():
                         created=datetime.utcnow(),
                     ).save()
 
+        fixed_users = None
         if fixed_mode:
             log.info("Fixed users mode is enabled")
             FixedUser.validate()
-
-            if FixedUser.guest_enabled():
-                _ensure_company(FixedUser.get_guest_user().company, "guests", log)
-
-            for user in FixedUser.from_config():
-                try:
-                    ensure_fixed_user(user, log=log, emails=internal_user_emails)
-                except Exception as ex:
-                    log.error(f"Failed creating fixed user {user.name}: {ex}")
+            fixed_users = FixedUser.from_config()
+            internal_user_emails.update(user.email for user in fixed_users)
 
         if internal_user_emails and config.get(
             f"apiserver.auth.delete_missing_autocreated_users", True
@@ -111,6 +105,18 @@ def init_mongo_data():
                     f"Removing user that is no longer in configuration: {user['id']}\t{user['email']}\t{user['name']}"
                 )
                 user.delete()
+
+        if fixed_users:
+            log.info("Adding fixed users")
+
+            if FixedUser.guest_enabled():
+                _ensure_company(FixedUser.get_guest_user().company, "guests", log)
+
+            for user in fixed_users:
+                try:
+                    ensure_fixed_user(user, log=log)
+                except Exception as ex:
+                    log.error(f"Failed creating fixed user {user.name}: {ex}")
 
     except Exception as ex:
         log.exception(f"Failed initializing mongodb: {str(ex)}")

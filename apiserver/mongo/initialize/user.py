@@ -4,7 +4,6 @@ from logging import Logger
 import attr
 
 from apiserver.config.info import get_version
-from apiserver.database.model.auth import Role
 from apiserver.database.model.auth import User as AuthUser, Credentials
 from apiserver.database.model.user import User
 from apiserver.service_repo.auth.fixed_user import FixedUser
@@ -98,18 +97,14 @@ def _ensure_auth_user(
     return user.id
 
 
-def ensure_fixed_user(user: FixedUser, log: Logger, emails: set):
+def ensure_fixed_user(user: FixedUser, log: Logger):
     # noinspection PyTypeChecker
     data = attr.asdict(user)
-    data["id"] = user.user_id
-    email = f"{user.user_id}@example.com"
-    data["email"] = email
-    data["role"] = Role.guest if user.is_guest else Role.user
     data["autocreated"] = True
 
     _ensure_auth_user(user_data=data, company_id=user.company, log=log)
 
-    db_user = User.objects(company=user.company, id=user.user_id).first()
+    db_user = User.objects(company=user.company, id=user.id).first()
     given_name, _, family_name = user.name.partition(" ")
     if db_user:
         # noinspection PyBroadException
@@ -122,7 +117,7 @@ def ensure_fixed_user(user: FixedUser, log: Logger, emails: set):
             pass
     else:
         User(
-            id=user.user_id,
+            id=user.id,
             company=user.company,
             name=user.name,
             given_name=given_name,
@@ -130,5 +125,3 @@ def ensure_fixed_user(user: FixedUser, log: Logger, emails: set):
             created=datetime.utcnow(),
             created_in_version=get_version(),
         ).save()
-
-    emails.add(email)

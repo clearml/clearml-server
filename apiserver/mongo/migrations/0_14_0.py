@@ -10,7 +10,7 @@ def _get_ids():
         return
 
     return {
-        hashlib.md5(f"{user.username}:{user.password}".encode()).hexdigest(): user.user_id
+        hashlib.md5(f"{user.username}:{user.password}".encode()).hexdigest(): user.id
         for user in FixedUser.from_config()
     }
 

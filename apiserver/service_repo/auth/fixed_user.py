@@ -6,6 +6,7 @@ import attr
 
 from apiserver.config_repo import config
 from apiserver.config.info import get_default_company
+from apiserver.database.model.auth import Role
 
 
 class FixedUsersError(Exception):
@@ -18,11 +19,17 @@ class FixedUser:
     password: str
     name: str
     company: str = get_default_company()
+    id: str = attr.field(init=False)
+    email: str = attr.field(init=False)
+    role: str = attr.field(init=False)
 
     is_guest: bool = False
 
     def __attrs_post_init__(self):
-        self.user_id = hashlib.md5(f"{self.company}:{self.username}".encode()).hexdigest()
+        self.id = hashlib.md5(f"{self.company}:{self.username}".encode()).hexdigest()
+        self.email = f"{self.id}@example.com"
+        self.role = Role.guest if self.is_guest else Role.user
+
 
     @classmethod
     def enabled(cls):
@@ -93,4 +100,4 @@ class FixedUser:
             )
 
     def __hash__(self):
-        return hash(self.user_id)
+        return hash(self.id)
