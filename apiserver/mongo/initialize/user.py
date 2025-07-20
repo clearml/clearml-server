@@ -3,6 +3,7 @@ from logging import Logger
 
 import attr
 
+from apiserver.config.info import get_version
 from apiserver.database.model.auth import Role
 from apiserver.database.model.auth import User as AuthUser, Credentials
 from apiserver.database.model.user import User
@@ -97,21 +98,6 @@ def _ensure_auth_user(
     return user.id
 
 
-def _ensure_backend_user(user_id: str, company_id: str, user_name: str):
-    given_name, _, family_name = user_name.partition(" ")
-
-    User(
-        id=user_id,
-        company=company_id,
-        name=user_name,
-        given_name=given_name,
-        family_name=family_name,
-        created=datetime.utcnow(),
-    ).save()
-
-    return user_id
-
-
 def ensure_fixed_user(user: FixedUser, log: Logger, emails: set):
     # noinspection PyTypeChecker
     data = attr.asdict(user)
@@ -124,17 +110,25 @@ def ensure_fixed_user(user: FixedUser, log: Logger, emails: set):
     _ensure_auth_user(user_data=data, company_id=user.company, log=log)
 
     db_user = User.objects(company=user.company, id=user.user_id).first()
+    given_name, _, family_name = user.name.partition(" ")
     if db_user:
         # noinspection PyBroadException
         try:
             log.info(f"Updating user name: {user.name}")
-            given_name, _, family_name = user.name.partition(" ")
             db_user.update(
                 name=user.name, given_name=given_name, family_name=family_name
             )
         except Exception:
             pass
     else:
-        _ensure_backend_user(user.user_id, user.company, user.name)
+        User(
+            id=user.user_id,
+            company=user.company,
+            name=user.name,
+            given_name=given_name,
+            family_name=family_name,
+            created=datetime.utcnow(),
+            created_in_version=get_version(),
+        ).save()
 
     emails.add(email)

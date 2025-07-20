@@ -1,13 +1,15 @@
+from datetime import datetime
 from pathlib import Path
 from typing import Sequence, Union
 
 from apiserver.config_repo import config
 from apiserver.config.info import get_default_company
+from apiserver.database.model import User
 from apiserver.database.model.auth import Role, User as AuthUser
 from apiserver.service_repo.auth.fixed_user import FixedUser
 from .migration import _apply_migrations, check_mongo_empty, get_last_server_version
 from .pre_populate import PrePopulate
-from .user import ensure_fixed_user, _ensure_auth_user, _ensure_backend_user
+from .user import ensure_fixed_user, _ensure_auth_user
 from .util import _ensure_company, _ensure_default_queue, _ensure_uuid
 
 log = config.logger(__package__)
@@ -77,7 +79,14 @@ def init_mongo_data():
                 user_data, company_id, log=log, revoke=revoke, internal_user=True
             )
             if credentials.role == Role.user:
-                _ensure_backend_user(user_id, company_id, credentials.display_name)
+                backend_user = User.objects(id=user_id).first()
+                if not backend_user:
+                    User(
+                        id=user_id,
+                        company=company_id,
+                        name=credentials.display_name,
+                        created=datetime.utcnow(),
+                    ).save()
 
         if fixed_mode:
             log.info("Fixed users mode is enabled")
