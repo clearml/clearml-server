@@ -30,6 +30,14 @@ def _validate_project_name(project_name: str, raise_if_empty=True) -> Tuple[str,
     return name_separator.join(name_parts), name_separator.join(name_parts[:-1])
 
 
+def _get_basename_from_name(name: str, raise_on_blank: bool = True) -> str:
+    basename = name.split("/")[-1].strip()
+    if not basename and raise_on_blank:
+        raise errors.bad_request.ValidationError("Project name cannot be blank")
+
+    return basename
+
+
 def _ensure_project(
     company: str, user: str, name: str, creation_params: dict = None
 ) -> Optional[Project]:
@@ -54,7 +62,7 @@ def _ensure_project(
         created=now,
         last_update=now,
         name=name,
-        basename=name.split("/")[-1],
+        basename=_get_basename_from_name(name),
         **(creation_params or dict(description="")),
     )
     parent = _ensure_project(company, user, location, creation_params=creation_params)

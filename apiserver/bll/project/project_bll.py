@@ -42,6 +42,7 @@ from .sub_projects import (
     _get_project_depth,
     ProjectsChildren,
     _get_writable_project_from_name,
+    _get_basename_from_name,
 )
 
 log = config.logger(__file__)
@@ -191,7 +192,7 @@ class ProjectBLL:
             if new_location != old_location:
                 raise errors.bad_request.CannotUpdateProjectLocation(name=new_name)
             fields["name"] = new_name
-            fields["basename"] = new_name.split("/")[-1]
+            fields["basename"] = _get_basename_from_name(new_name)
 
         fields["last_update"] = datetime.utcnow()
         updated = project.update(upsert=False, **fields)
@@ -246,7 +247,7 @@ class ProjectBLL:
             user=user,
             company=company,
             name=name,
-            basename=name.split("/")[-1],
+            basename=_get_basename_from_name(name),
             description=description,
             tags=tags,
             system_tags=system_tags,
