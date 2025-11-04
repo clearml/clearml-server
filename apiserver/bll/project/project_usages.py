@@ -395,8 +395,16 @@ class ProjectUsages:
             return projects_child_to_parent.get(p_id, p_id)
 
         def get_queue_id(item: dict):
+            """
+            If task is not enqueued return None
+            If task queue exists and in allowed_queues (if defined) then return queue id
+            Otherwise return 'other' queue id
+            """
             q_id = item.get("key")
-            if allowed_queues is None or q_id is None or q_id in allowed_queues:
+            if q_id is None:
+                return q_id
+
+            if q_id in names and (allowed_queues is None or q_id in allowed_queues):
                 return q_id
 
             return cls._other_q_id
