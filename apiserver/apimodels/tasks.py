@@ -113,7 +113,7 @@ class EnqueueRequest(UpdateRequest):
 
 
 class DeleteRequest(UpdateRequest):
-    move_to_trash = BoolField(default=True)
+    move_to_trash = BoolField(default=False)
     return_file_urls = BoolField(default=False)
     delete_output_models = BoolField(default=True)
     delete_external_artifacts = BoolField(default=True)
@@ -313,7 +313,7 @@ class EnqueueManyRequest(TaskBatchRequest):
 
 
 class DeleteManyRequest(TaskBatchRequest):
-    move_to_trash = BoolField(default=True)
+    move_to_trash = BoolField(default=False)
     return_file_urls = BoolField(default=False)
     delete_output_models = BoolField(default=True)
     force = BoolField(default=False)
