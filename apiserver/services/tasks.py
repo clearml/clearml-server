@@ -1,6 +1,6 @@
 import itertools
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import partial
 from typing import Sequence, Union, Tuple, Mapping
 
@@ -70,6 +70,7 @@ from apiserver.apimodels.tasks import (
     StopRequest,
     UnarchiveManyRequest,
     ArchiveManyRequest,
+    EditRuntimeRequest,
 )
 from apiserver.bll.event import EventBLL
 from apiserver.bll.model import ModelBLL
@@ -360,7 +361,7 @@ def stopped(call: APICall, company_id, req_model: UpdateRequest):
             company_id=company_id,
             identity=call.identity,
             new_status=TaskStatus.stopped,
-            completed=datetime.utcnow(),
+            completed=datetime.now(timezone.utc),
         )
     )
 
@@ -374,10 +375,10 @@ def started(call: APICall, company_id, req_model: UpdateRequest):
     started_update = {}
     if Task.objects(id=req_model.task, started=None).only("id"):
         # this is the fix for older versions putting started to None on reset
-        started_update["started"] = datetime.utcnow()
+        started_update["started"] = datetime.now(timezone.utc)
     else:
         # don't override a previous, smaller "started" field value
-        started_update["min__started"] = datetime.utcnow()
+        started_update["min__started"] = datetime.now(timezone.utc)
 
     res = StartedResponse(
         **set_task_status_from_call(
@@ -512,7 +513,7 @@ def prepare_create_fields(
     # Add models updated time
     models = fields.get("models")
     if models:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for field in (TaskModelTypes.input, TaskModelTypes.output):
             field_models = models.get(field)
             if not field_models:
@@ -635,7 +636,7 @@ def update(call: APICall, company_id, req_model: UpdateRequest):
             id=task_id,
             partial_update_dict=partial_update_dict,
             injected_update=dict(
-                last_change=datetime.utcnow(),
+                last_change=datetime.now(timezone.utc),
                 last_changed_by=call.identity.user,
             ),
         )
@@ -702,7 +703,7 @@ def update_batch(call: APICall, company_id, _):
             missing = tuple(set(items).difference(tasks))
             raise errors.bad_request.InvalidTaskId(ids=missing)
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         bulk_ops = []
         updated_projects = set()
@@ -793,7 +794,7 @@ def edit(call: APICall, company_id, req_model: UpdateRequest):
             for k, v in fields.items()
         }
         if fixed_fields:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             last_change = dict(last_change=now, last_changed_by=call.identity.user)
             if not set(fields).issubset(Task.user_set_allowed()):
                 last_change.update(last_update=now)
@@ -1381,7 +1382,7 @@ def completed(call: APICall, company_id, request: CompletedRequest):
             company_id=company_id,
             identity=call.identity,
             new_status=TaskStatus.completed,
-            completed=datetime.utcnow(),
+            completed=datetime.now(timezone.utc),
         )
     )
 
@@ -1409,8 +1410,22 @@ def ping(call: APICall, company_id, request: PingRequest):
         task_ids=[request.task],
         company_id=company_id,
         user_id=call.identity.user,
-        last_update=datetime.utcnow(),
+        last_update=datetime.now(timezone.utc),
     )
+
+
+@endpoint("tasks.edit_runtime", request_data_model=EditRuntimeRequest)
+def edit_runtime(call: APICall, company_id, request: EditRuntimeRequest):
+    call.result.data = {
+        "updated": TaskBLL.edit_runtime(
+            company_id=company_id,
+            task_id=request.task,
+            identity=call.identity,
+            add_or_update=request.add_or_update,
+            remove=request.remove,
+            force=True,
+        )
+    }
 
 
 @endpoint(
@@ -1521,7 +1536,7 @@ def add_or_update_model(call: APICall, company_id: str, request: AddUpdateModelR
     )
 
     models_field = f"models__{request.type}"
-    model = ModelItem(name=request.name, model=request.model, updated=datetime.utcnow())
+    model = ModelItem(name=request.name, model=request.model, updated=datetime.now(timezone.utc))
     query = {"id": request.task, f"{models_field}__name": request.name}
     updated = Task.objects(**query).update_one(**{f"set__{models_field}__S": model})
 
@@ -1553,7 +1568,7 @@ def delete_models(call: APICall, company_id: str, request: DeleteModelsRequest):
     }
 
     updated = task.update(
-        last_change=datetime.utcnow(),
+        last_change=datetime.now(timezone.utc),
         last_changed_by=call.identity.user,
         **commands,
     )

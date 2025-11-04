@@ -151,6 +151,11 @@ class PingRequest(TaskRequest):
     pass
 
 
+class EditRuntimeRequest(TaskUpdateRequest):
+    add_or_update = DictField()
+    remove = ListField(items_types=[str])
+
+
 class GetTypesRequest(models.Base):
     projects = ListField(items_types=[str])
 

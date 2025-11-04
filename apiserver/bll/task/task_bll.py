@@ -1,5 +1,5 @@
-from datetime import datetime
-from typing import Collection, Sequence, Tuple, Optional, Dict
+from datetime import datetime, timezone
+from typing import Collection, Sequence, Tuple, Optional, Dict, Any, List
 
 import six
 from mongoengine import Q
@@ -39,13 +39,17 @@ from apiserver.database.utils import (
 from apiserver.es_factory import es_factory
 from apiserver.redis_manager import redman
 from apiserver.services.utils import validate_tags, escape_dict_field, escape_dict
+from apiserver.service_repo.auth import Identity
 from apiserver.utilities.dicts import nested_set
+from apiserver.utilities.parameter_key_escaper import ParameterKeyEscaper
 from .artifacts import artifacts_prepare_for_save
 from .param_utils import params_prepare_for_save
 from .utils import (
     ChangeStatusRequest,
     deleted_prefix,
     get_last_metric_updates,
+    update_task,
+    get_task_for_update,
 )
 
 log = config.logger(__file__)
@@ -91,6 +95,36 @@ class TaskBLL:
 
         return task
 
+    @classmethod
+    def edit_runtime(
+        cls,
+        company_id: str,
+        identity: Identity,
+        task_id: str,
+        add_or_update: Dict[str, Any],
+        remove: List[str],
+        force: bool
+    ) -> int:
+        task = get_task_for_update(
+            company_id=company_id, task_id=task_id, force=force, identity=identity
+        )
+
+        update_cmds = {
+            **{
+                f"set__runtime__{ParameterKeyEscaper.escape(name)}": value
+                for name, value in add_or_update.items()
+            },
+            **{
+                f"unset__runtime__{ParameterKeyEscaper.escape(name)}": 1
+                for name in remove
+            }
+        }
+
+        if not update_cmds:
+            return 0
+
+        return update_task(task, user_id=identity.user, update_cmds=update_cmds)
+
     @staticmethod
     def assert_exists(
         company_id, task_ids, only=None, allow_public=False, return_tasks=True
@@ -117,7 +151,7 @@ class TaskBLL:
 
     @staticmethod
     def create(company: str, user: str, fields: dict):
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return Task(
             id=create_id(),
             user=user,
@@ -195,7 +229,7 @@ class TaskBLL:
                 updated_configuration[key] = value
             params_dict["configuration"] = updated_configuration
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if input_models:
             input_models = [
                 ModelItem(model=m.model, name=m.name, updated=now) for m in input_models
@@ -374,7 +408,7 @@ class TaskBLL:
             if task.status == TaskStatus.in_progress and task.started:
                 updates = {
                     "active_duration": (
-                        datetime.utcnow() - task.started
+                        datetime.now(timezone.utc) - task.started
                     ).total_seconds(),
                     **extra_updates,
                 }
@@ -413,7 +447,7 @@ class TaskBLL:
         :param extra_updates: Extra task updates to include in this update call.
         :return:
         """
-        last_update = last_update or datetime.utcnow()
+        last_update = last_update or datetime.now(timezone.utc)
 
         if last_iteration is not None:
             extra_updates.update(last_iteration=last_iteration)
@@ -465,7 +499,7 @@ class TaskBLL:
         if exclude:
             more["id__ne"] = exclude
         return Queue.objects(company=company_id, entries__task=task_id, **more).update(
-            pull__entries__task=task_id, last_update=datetime.utcnow()
+            pull__entries__task=task_id, last_update=datetime.now(timezone.utc)
         )
 
     @classmethod
