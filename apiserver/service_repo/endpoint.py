@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Callable, Sequence, Text
+from typing import Callable, Sequence, Text, Any
 from boltons.iterutils import remap
 from jsonmodels import models
 from jsonmodels.errors import FieldNotSupported
@@ -9,7 +9,7 @@ from apiserver.utilities.partial_version import PartialVersion
 from .apicall import APICall
 from .schema_validator import SchemaValidator
 
-EndpointFunc = Callable[[APICall, Text, models.Base], None]
+EndpointFunc = Callable[[APICall, Text, models.Base], Any]
 
 
 class Endpoint(object):
