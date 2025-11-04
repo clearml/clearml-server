@@ -88,7 +88,7 @@ services:
     networks:
       - backend
     container_name: clearml-mongo
-    image: mongo:6.0.19
+    image: mongo:7.0.22
     restart: unless-stopped
     command: --setParameter internalQueryMaxBlockingSortMemoryUsageBytes=196100200
     volumes:
