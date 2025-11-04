@@ -11,7 +11,7 @@ RUN mv clearml-web /opt/open-webapp
 COPY --chmod=744 docker/build/internal_files/build_webapp.sh /tmp/internal_files/
 RUN /bin/bash -c '/tmp/internal_files/build_webapp.sh'
 
-FROM python:3.9-slim-bookworm
+FROM python:3.11-slim-bookworm
 COPY --chmod=744 docker/build/internal_files/entrypoint.sh /opt/clearml/
 COPY --chmod=744 docker/build/internal_files/update_from_env.py /opt/clearml/utilities/
 COPY fileserver /opt/clearml/fileserver/

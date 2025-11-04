@@ -408,7 +408,7 @@ class TaskBLL:
             if task.status == TaskStatus.in_progress and task.started:
                 updates = {
                     "active_duration": (
-                        datetime.now(timezone.utc) - task.started
+                        datetime.utcnow() - task.started
                     ).total_seconds(),
                     **extra_updates,
                 }
