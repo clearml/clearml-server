@@ -405,9 +405,6 @@ class ProjectUsages:
             Otherwise return 'other' queue id
             """
             q_id = item.get("key")
-            if q_id is None:
-                return q_id
-
             if q_id is None or q_id in allowed_queues:
                 return q_id
 
@@ -457,11 +454,20 @@ class ProjectUsages:
                         for usage in usage_fields:
                             date_usages[usage].append(0)
 
-                    dates.append(current_date.timestamp())
-                    next_date = current_date + timedelta(days=1)
-                    for usage in usage_fields:
-                        total_usages[usage] += date_data[usage]
-                        date_usages[usage].append(date_data[usage])
+                    timestamp = current_date.timestamp()
+                    if dates and dates[-1] == timestamp:
+                        # since data from several queues or projects can collapse into the same one
+                        # it is possible that we have several records with the same date for the same queue/project
+                        # then need to sum the usages under the same date
+                        for usage in usage_fields:
+                            total_usages[usage] += date_data[usage]
+                            date_usages[usage][-1] += date_data[usage]
+                    else:
+                        dates.append(timestamp)
+                        next_date = current_date + timedelta(days=1)
+                        for usage in usage_fields:
+                            total_usages[usage] += date_data[usage]
+                            date_usages[usage].append(date_data[usage])
 
                 while next_date.date() <= end.date():
                     dates.append(next_date.timestamp())
