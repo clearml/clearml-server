@@ -1,8 +1,7 @@
 import time
+from datetime import timedelta
 from operator import itemgetter
 from typing import Sequence
-
-from future.backports.datetime import timedelta
 
 from apiserver.tests.api_client import AttrDict
 from apiserver.tests.automated import TestService, utc_now_tz_aware
