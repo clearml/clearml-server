@@ -15,10 +15,12 @@ from apiserver.apimodels.organization import (
     DownloadForGetAllRequest,
     EntityType,
     PrepareDownloadForGetAllRequest,
+    GetProjectUsagesRequest,
 )
 from apiserver.bll.model import Metadata
 from apiserver.bll.organization import OrgBLL, Tags
 from apiserver.bll.project import ProjectBLL
+from apiserver.bll.project.project_usages import ProjectUsages
 from apiserver.config_repo import config
 from apiserver.database.model import User, AttributedDocument, EntityVisibility
 from apiserver.database.model.model import Model
@@ -400,3 +402,16 @@ def download_for_get_all(call: APICall, company, request: DownloadForGetAllReque
     )
     call.result.content_type = "text/csv"
     call.result.raw_data = stream_with_context(generate())
+
+
+@endpoint("organization.get_project_usages")
+def get_project_usages(call: APICall, company, request: GetProjectUsagesRequest):
+    call.result.data = ProjectUsages.get_project_usages(
+        company,
+        project_ids=request.projects,
+        from_date_str=request.from_date,
+        to_date_str=request.to_date,
+        include_development=request.include_development,
+        breakdown_keys=request.breakdown_keys,
+        usage_fields=request.usage_fields,
+    )

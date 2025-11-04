@@ -85,6 +85,7 @@ def register(call: APICall, company_id, request: RegisterRequest):
         timeout=timeout,
         tags=request.tags,
         system_tags=request.system_tags,
+        resources=request.resources,
     )
 
 

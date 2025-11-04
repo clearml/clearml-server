@@ -5,6 +5,7 @@ from mongoengine import (
     DateTimeField,
     EmbeddedDocumentListField,
     EmbeddedDocumentField,
+    FloatField,
 )
 
 from apiserver.database import Database, strict
@@ -27,6 +28,11 @@ class Entry(EmbeddedDocument, ProperDictMixin):
     """ Task ID """
     added = DateTimeField(required=True)
     """ Added to the queue """
+
+
+class Resources(EmbeddedDocument):
+    cpu_usage = FloatField()
+    gpu_usage = FloatField()
 
 
 class Queue(DbModelMixin, Document):
@@ -59,3 +65,4 @@ class Queue(DbModelMixin, Document):
     metadata = SafeMapField(
         field=EmbeddedDocumentField(MetadataItem), user_set_allowed=True
     )
+    resources = EmbeddedDocumentField(Resources)

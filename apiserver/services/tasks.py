@@ -371,18 +371,25 @@ def stopped(call: APICall, company_id, req_model: UpdateRequest):
     request_data_model=UpdateRequest,
     response_data_model=StartedResponse,
 )
-def started(call: APICall, company_id, req_model: UpdateRequest):
+def started(call: APICall, company_id, request: UpdateRequest):
+    task = Task.objects(id=request.task).only("id", "status", "started").first()
+    if not task:
+        raise errors.bad_request.InvalidId(task=task)
+
     started_update = {}
-    if Task.objects(id=req_model.task, started=None).only("id"):
-        # this is the fix for older versions putting started to None on reset
-        started_update["started"] = datetime.now(timezone.utc)
-    else:
+    if task.status == TaskStatus.in_progress and task.started:
         # don't override a previous, smaller "started" field value
         started_update["min__started"] = datetime.now(timezone.utc)
+    else:
+        started_update = {
+            "started": datetime.now(timezone.utc),
+            "unset__completed": 1,
+            "unset__active_duration": 1,
+        }
 
     res = StartedResponse(
         **set_task_status_from_call(
-            req_model,
+            request,
             company_id=company_id,
             identity=call.identity,
             new_status=TaskStatus.in_progress,
@@ -403,6 +410,7 @@ def failed(call: APICall, company_id, req_model: UpdateRequest):
             company_id=company_id,
             identity=call.identity,
             new_status=TaskStatus.failed,
+            completed=datetime.utcnow(),
         )
     )
 

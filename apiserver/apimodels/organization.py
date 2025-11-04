@@ -2,7 +2,7 @@ from enum import auto
 from typing import Sequence
 
 from jsonmodels import fields, models
-from jsonmodels.validators import Length
+from jsonmodels.validators import Length, Enum
 
 from apiserver.apimodels import DictField, ActualEnumField, ScalarField
 from apiserver.utilities.stringenum import StringEnum
@@ -61,3 +61,29 @@ class PrepareDownloadForGetAllRequest(models.Base):
 
 class DownloadForGetAllRequest(models.Base):
     prepare_id = fields.StringField(required=True)
+
+class UsageAggFields(StringEnum):
+    duration = auto()
+    cpu_usage = auto()
+    gpu_usage = auto()
+
+
+class UsageBreakdownKeys(StringEnum):
+    project = auto()
+    user = auto()
+    queue = auto()
+
+
+class GetProjectUsagesRequest(models.Base):
+    projects = fields.ListField(
+        [str], required=True, validators=[Length(minimum_value=1)]
+    )
+    from_date: str = fields.StringField(required=True)
+    to_date: str = fields.StringField(required=True)
+    include_development = fields.BoolField(default=False)
+    breakdown_keys: Sequence[str] = fields.ListField(
+        items_types=[str], item_validators=[Enum(*UsageBreakdownKeys.values())]
+    )
+    usage_fields: Sequence[str] = fields.ListField(
+        items_types=[str], item_validators=[Enum(*UsageAggFields.values())]
+    )
