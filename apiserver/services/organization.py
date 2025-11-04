@@ -37,6 +37,7 @@ from apiserver.services.tasks import (
 from apiserver.services.utils import get_tags_filter_dictionary, sort_tags_response
 from apiserver.utilities import json
 from apiserver.utilities.dicts import nested_get
+from apiserver.utilities.parameter_key_escaper import ParameterKeyEscaper
 
 org_bll = OrgBLL()
 project_bll = ProjectBLL()
@@ -314,10 +315,17 @@ def download_for_get_all(call: APICall, company, request: DownloadForGetAllReque
         def write(line: str) -> str:
             return line
 
+    def get_field_path(path_str: str) -> Sequence[str]:
+        path = path_str.split(".")
+        if len(path) < 2 or path[0] not in ("metadata", "hyperparams", "configuration"):
+            return path
+
+        return [ParameterKeyEscaper.unescape(p) for p in path]
+
     def generate():
         field_mappings = {
             mapping.get("name", mapping["field"]): {
-                "field_path": mapping["field"].split("."),
+                "field_path": get_field_path(mapping["field"]),
                 "values": {
                     v.get("key"): v.get("value")
                     for v in (mapping.get("values") or [])
