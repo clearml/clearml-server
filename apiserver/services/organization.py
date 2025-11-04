@@ -3,7 +3,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 from operator import itemgetter
-from typing import Mapping, Type, Sequence, Optional, Callable, Hashable
+from typing import Mapping, Type, Sequence, Optional, Callable, Hashable, Tuple, Union
 
 from flask import stream_with_context
 from mongoengine import Q
@@ -90,12 +90,10 @@ def get_entities_count(call: APICall, company, request: EntitiesCountRequest):
         "dataset_versions": Task,
         "reports": Task,
     }
-    ret = {}
-    for field, entity_cls in entity_classes.items():
-        data = call.data.get(field)
-        if data is None:
-            continue
 
+    def calc_entities_count(
+        field: str, data: dict, entity_cls: Type[AttributedDocument]
+    ) -> int:
         if field == "reports":
             data["type"] = TaskType.report
         elif field == "pipeline_runs":
@@ -117,8 +115,7 @@ def get_entities_count(call: APICall, company, request: EntitiesCountRequest):
                     allow_public=request.allow_public,
                 )
                 if not ids:
-                    ret[field] = 0
-                    continue
+                    return 0
                 data["id"] = ids
             elif not data.get("user"):
                 data["user"] = request.active_users
@@ -126,7 +123,8 @@ def get_entities_count(call: APICall, company, request: EntitiesCountRequest):
         query = Q()
         if (
             entity_cls in (Project, Task)
-            and field not in (
+            and field
+            not in (
                 "reports",
                 "pipelines",
                 "pipeline_runs",
@@ -138,7 +136,7 @@ def get_entities_count(call: APICall, company, request: EntitiesCountRequest):
             query &= Q(system_tags__ne=EntityVisibility.hidden.value)
 
         if not request.limit:
-            ret[field] = entity_cls.get_count(
+            return entity_cls.get_count(
                 company=company,
                 query_dict=data,
                 query=query,
@@ -152,7 +150,42 @@ def get_entities_count(call: APICall, company, request: EntitiesCountRequest):
                 allow_public=request.allow_public,
             )
             ids = entity_cls.objects(query).limit(request.limit).scalar("id")
-            ret[field] = len(ids)
+            return len(ids)
+
+    count_jobs = [
+        (field, data, entity_cls)
+        for field, entity_cls in entity_classes.items()
+        if (data := call.data.get(field)) is not None
+    ]
+    num_workers = conf.get("max_entities_count_concurrency", 0)
+    errs = {}
+    ret = {}
+    if not num_workers:
+        for field, data, entity_cls in count_jobs:
+            try:
+                ret[field] = calc_entities_count(field, data, entity_cls)
+            except Exception as ex:
+                errs[field] = str(ex)
+    else:
+
+        def calc_wrapper(input_: tuple) -> Tuple[str, Union[int, str]]:
+            field, data, entity_cls = input_
+            try:
+                result = calc_entities_count(field, data, entity_cls)
+            except Exception as ex_:
+                result = str(ex_)
+
+            return field, result
+
+        with ThreadPoolExecutor(max_workers=num_workers) as pool:
+            for field, res in pool.map(calc_wrapper, count_jobs):
+                if isinstance(res, int):
+                    ret[field] = res
+                else:
+                    errs[field] = res
+
+    if errs:
+        ret["errors"] = errs
 
     call.result.data = ret
 
