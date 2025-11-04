@@ -13,15 +13,25 @@ from pymongo.database import Database
 logging.getLogger().setLevel(logging.INFO)
 
 
-def fix_mongo_urls(mongo_host: str, host_source: str, host_target: str):
+def fix_mongo_urls(
+    mongo_host: str,
+    host_source: str,
+    host_target: str,
+    user: str = None,
+    password: str = None
+):
     logging.info(f"Connecting to Mongo on {mongo_host}")
-    client = MongoClient(host=mongo_host)
+    client = MongoClient(
+        host=mongo_host,
+        username=user,
+        password=password,
+    )
     backend_db: Database = client.backend
 
     def get_updated_uri(uri: str):
         if not uri or not uri.startswith(host_source):
             return
-        relative_url = uri[len(host_source) :]
+        relative_url = uri[len(host_source):]
         return f"{host_target.rstrip('/')}/{relative_url.lstrip('/')}"
 
     host_source = host_source
@@ -95,6 +105,12 @@ def main():
         help="Mongo server host. The default is mongodb://mongo:27017",
     )
     parser.add_argument(
+        "--mongo-user", "-mu", help="Mongo db user", type=str, default=None,
+    )
+    parser.add_argument(
+        "--mongo-password", "-mp", help="Mongo db password", type=str, default=None,
+    )
+    parser.add_argument(
         "--host-source",
         "-hs",
         type=valid_url_prefix,
@@ -114,6 +130,8 @@ def main():
         mongo_host=args.mongo_host,
         host_source=args.host_source,
         host_target=args.host_target,
+        user=args.mongo_user,
+        password=args.mongo_password,
     )
     logging.info("Completed successfully")
 
