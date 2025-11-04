@@ -394,17 +394,21 @@ class ProjectUsages:
             p_id = item.get("key")
             return projects_child_to_parent.get(p_id, p_id)
 
+        if allowed_queues is None:
+            allowed_queues = list(
+                Queue.objects(company__in=[company_id, "", None]).scalar("id")
+            )
+
         def get_queue_id(item: dict):
             """
-            If task is not enqueued return None
-            If task queue exists and in allowed_queues (if defined) then return queue id
+            If task is not enqueued or queue_id in allowed_queues then return queue_id
             Otherwise return 'other' queue id
             """
             q_id = item.get("key")
             if q_id is None:
                 return q_id
 
-            if q_id in names and (allowed_queues is None or q_id in allowed_queues):
+            if q_id is None or q_id in allowed_queues:
                 return q_id
 
             return cls._other_q_id
