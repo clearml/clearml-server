@@ -46,6 +46,7 @@ server {
         proxy_set_header Host $host;
         proxy_pass ${NGINX_APISERVER_ADDR};
         rewrite /api/(.*) /$1  break;
+        proxy_set_header Connection "";
     }
 
     location /files {
