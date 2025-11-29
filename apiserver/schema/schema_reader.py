@@ -108,6 +108,7 @@ class EndpointVersionsGroup:
         self.internal = self._pop_attr_with_default(conf, "internal")
         self.allow_roles = self._pop_attr_with_default(conf, "allow_roles")
         self.authorize = self._pop_attr_with_default(conf, "authorize")
+        self.community_only = self._pop_attr_with_default(conf, "community_only")
 
         def parse_version(version):
             if not re.match(r"^\d+\.\d+$", version):
