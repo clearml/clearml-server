@@ -6,14 +6,13 @@
 </br>Experiment Manager, ML-Ops and Data-Management**
 
 [![GitHub license](https://img.shields.io/badge/license-SSPL-green.svg)](https://img.shields.io/badge/license-SSPL-green.svg)
-[![Python versions](https://img.shields.io/badge/python-3.9-blue.svg)](https://img.shields.io/badge/python-3.9-blue.svg)
+[![Python versions](https://img.shields.io/badge/python-3.11-blue.svg)](https://img.shields.io/badge/python-3.11-blue.svg)
 [![GitHub version](https://img.shields.io/github/release-pre/clearml/clearml-server.svg)](https://img.shields.io/github/release-pre/clearml/clearml-server.svg)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/clearml)](https://artifacthub.io/packages/search?repo=clearml)
 
 </div>
 
 ## ClearML Server
-#### *Formerly known as Trains Server*
 
 The **ClearML Server** is the backend service infrastructure for [ClearML](https://github.com/clearml/clearml).
 It allows multiple users to collaborate and manage their experiments.
