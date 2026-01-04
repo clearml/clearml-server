@@ -51,6 +51,7 @@ services:
       node.name: clearml
       reindex.remote.whitelist: "'*.*'"
       xpack.security.enabled: "false"
+      path.repo: /usr/share/elasticsearch/backup
     ulimits:
       memlock:
         soft: -1
