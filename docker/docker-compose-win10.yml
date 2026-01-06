@@ -61,7 +61,7 @@ services:
     image: elasticsearch:8.17.0
     restart: unless-stopped
     volumes:
-      - c:/opt/clearml/data/elastic_7:/usr/share/elasticsearch/data
+      - c:/opt/clearml/data/elastic_7:/var/lib/elasticsearch/data
       - /usr/share/elasticsearch/logs
 
   fileserver:
