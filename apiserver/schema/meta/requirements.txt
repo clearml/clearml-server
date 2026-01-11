@@ -1,0 +1,7 @@
+colorful
+regex
+pyhocon
+pyyaml
+jsonschema
+boltons
+treelib
