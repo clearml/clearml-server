@@ -29,12 +29,14 @@ from apiserver.database.model.task.task import (
     DEFAULT_ARTIFACT_MODE,
     TaskModelNames,
     TaskModelTypes,
+    Script,
 )
 from apiserver.database.model import EntityVisibility
 from apiserver.database.model.queue import Queue
 from apiserver.database.utils import (
     get_company_or_none_constraint,
     id as create_id,
+    get_fields_attr,
 )
 from apiserver.es_factory import es_factory
 from apiserver.redis_manager import redman
@@ -179,6 +181,19 @@ class TaskBLL:
 
         return
 
+    task_script_stripped_fields = set(
+        [f for f, v in get_fields_attr(Script, "strip").items() if v]
+    )
+    @classmethod
+    def strip_script_fields(cls, script: dict):
+        """
+        Strip all script fields (remove leading and trailing whitespace chars) to avoid unusable names and paths
+        """
+        for field in cls.task_script_stripped_fields:
+            value = script.get(field)
+            if isinstance(value, str):
+                script[field] = value.strip()
+
     @classmethod
     def clone_task(
         cls,
@@ -195,6 +210,7 @@ class TaskBLL:
         configuration: Optional[dict] = None,
         container: Optional[dict] = None,
         execution_overrides: Optional[dict] = None,
+        script_overrides: Optional[dict] = None,
         input_models: Optional[Sequence[TaskInputModel]] = None,
         validate_references: bool = False,
         new_project_name: str = None,
@@ -234,6 +250,11 @@ class TaskBLL:
             input_models = [
                 ModelItem(model=m.model, name=m.name, updated=now) for m in input_models
             ]
+
+        script_dict = task.script.to_proper_dict() if task.script else {}
+        if script_overrides:
+            cls.strip_script_fields(script_overrides)
+            script_dict.update(script_overrides)
 
         execution_dict = task.execution.to_proper_dict() if task.execution else {}
         if execution_overrides:
@@ -327,7 +348,7 @@ class TaskBLL:
             tags=tags or task.tags,
             system_tags=system_tags or clean_system_tags(task.system_tags),
             type=task.type,
-            script=task.script,
+            script=script_dict,
             output=Output(destination=task.output.destination) if task.output else None,
             models=Models(input=input_models or task.models.input),
             container=escape_dict(container) or task.container,

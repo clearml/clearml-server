@@ -123,12 +123,10 @@ from apiserver.database.model.task.output import Output
 from apiserver.database.model.task.task import (
     Task,
     TaskStatus,
-    Script,
     ModelItem,
     TaskModelTypes,
 )
 from apiserver.database.utils import (
-    get_fields_attr,
     parse_from_call,
     get_options,
 )
@@ -147,9 +145,6 @@ from apiserver.utilities.dicts import nested_get
 from apiserver.utilities.partial_version import PartialVersion
 
 task_fields = set(Task.get_fields())
-task_script_stripped_fields = set(
-    [f for f, v in get_fields_attr(Script, "strip").items() if v]
-)
 
 task_bll = TaskBLL()
 event_bll = EventBLL()
@@ -462,13 +457,8 @@ def prepare_for_save(call: APICall, fields: dict, previous_task: Task = None):
     for path in dict_fields_paths:
         escape_dict_field(fields, path)
 
-    # Strip all script fields (remove leading and trailing whitespace chars) to avoid unusable names and paths
-    script = fields.get("script")
-    if script:
-        for field in task_script_stripped_fields:
-            value = script.get(field)
-            if isinstance(value, str):
-                script[field] = value.strip()
+    if script := fields.get("script"):
+        task_bll.strip_script_fields(script)
 
     return fields
 
@@ -598,6 +588,7 @@ def clone_task(call: APICall, company_id, request: CloneRequest):
         configuration=request.new_task_configuration,
         container=request.new_task_container,
         execution_overrides=request.execution_overrides,
+        script_overrides=request.script_overrides,
         input_models=request.new_task_input_models,
         validate_references=request.validate_references,
         new_project_name=request.new_project_name,
