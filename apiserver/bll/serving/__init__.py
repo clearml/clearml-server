@@ -5,7 +5,7 @@ from time import time
 from typing import Optional, Sequence, Union
 
 import attr
-from boltons.iterutils import chunked_iter, bucketize
+from boltons.iterutils import bucketize
 from pyhocon import ConfigTree
 
 from apiserver.apimodels.serving import (
@@ -156,15 +156,15 @@ class ServingBLL:
     ) -> Sequence[ServingContainerEntry]:
         keys = list(self.redis.scan_iter(self._get_container_key(company_id, "*")))
         entries = []
-        for keys in chunked_iter(keys, 1000):
-            data = self.redis.mget(keys)
+        for key in keys:
+            data = self.redis.get(key)
             if not data:
                 continue
-            for d in data:
-                try:
-                    entries.append(ServingContainerEntry.from_json(d))
-                except Exception as ex:
-                    log.error(f"Failed parsing container entry {str(ex)}")
+
+            try:
+                entries.append(ServingContainerEntry.from_json(data))
+            except Exception as ex:
+                log.error(f"Failed parsing container entry {str(ex)}")
 
         return entries
 
@@ -279,10 +279,12 @@ class ServingBLL:
 
         entries = []
         found_keys = set()
-        data = self.redis.mget(container_keys) or []
-        for d in data:
+        for key in container_keys:
+            data = self.redis.get(key)
+            if not data:
+                continue
             try:
-                entry = ServingContainerEntry.from_json(d)
+                entry = ServingContainerEntry.from_json(data)
                 if entry.endpoint_url == endpoint_url:
                     entries.append(entry)
                     found_keys.add(entry.key)

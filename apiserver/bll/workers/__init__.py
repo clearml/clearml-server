@@ -6,7 +6,7 @@ from typing import Sequence, Set, Optional
 
 import attr
 import elasticsearch.helpers
-from boltons.iterutils import partition, chunked_iter
+from boltons.iterutils import partition
 from mongoengine import Q
 from pyhocon import ConfigTree
 
@@ -530,19 +530,16 @@ class WorkerBLL:
         """Get worker entries matching the company and user, worker patterns"""
 
         entries = []
-        for keys in chunked_iter(
-            self._get_keys(
-                company,
-                user=user,
-                user_tags=user_tags,
-                system_tags=system_tags,
-                worker_pattern=worker_pattern,
-            ),
-            1000,
+        for key in self._get_keys(
+            company,
+            user=user,
+            user_tags=user_tags,
+            system_tags=system_tags,
+            worker_pattern=worker_pattern,
         ):
-            data = self.redis.mget(keys)
+            data = self.redis.get(key)
             if data:
-                entries.extend(WorkerEntry.from_json(d) for d in data if d)
+                entries.append(WorkerEntry.from_json(data))
 
         return entries
 

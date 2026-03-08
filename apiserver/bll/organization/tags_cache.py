@@ -132,7 +132,7 @@ class _TagsCache:
         )
 
     def _delete_redis_keys(
-        self, company_id: str, projects: [Sequence[str]], fields: Sequence[str]
+        self, company_id: str, projects: Sequence[str], fields: Sequence[str]
     ):
         redis_keys = list(
             chain.from_iterable(
@@ -143,5 +143,5 @@ class _TagsCache:
                 for p in set(projects) | {None}
             )
         )
-        if redis_keys:
-            self.redis.delete(*redis_keys)
+        for key in redis_keys:
+            self.redis.delete(key)

@@ -49,23 +49,25 @@ def _ensure_mongodb_version():
         return
 
     log.info("Checking DB version")
+    v_target = "8.0"
+    v_source = "7.0"
     db: pymongo.database.Database = get_db(Database.backend)
     db_version = db.client.server_info()["version"]
-    if not db_version.startswith("7.0"):
-        log.warning(f"Database version should be 7.0.x. Instead: {str(db_version)}")
+    if not db_version.startswith(v_target):
+        log.warning(f"Database version should be {v_target}.x. Instead: {str(db_version)}")
         return
 
     res = db.client.admin.command({"getParameter": 1, "featureCompatibilityVersion": 1})
     version = nested_get(res, ("featureCompatibilityVersion", "version"))
     log.info(f"DB version: {version}")
-    if version == "7.0":
+    if version == v_target:
         return
-    if version != "6.0":
-        log.warning(f"Cannot upgrade DB version. Should be 6.0. {str(res)}")
+    if version != v_source:
+        log.warning(f"Cannot upgrade DB version. Should be {v_source}. {str(res)}")
         return
 
-    log.info("Upgrading db version from 6.0 to 7.0")
-    res = db.client.admin.command({"setFeatureCompatibilityVersion": "7.0", "confirm": True})
+    log.info(f"Upgrading db version from {v_source} to {v_target}")
+    res = db.client.admin.command({"setFeatureCompatibilityVersion": v_target, "confirm": True})
     log.info(res)
 
 
