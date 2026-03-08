@@ -1222,7 +1222,6 @@ class EventBLL(object):
 
         with translate_errors_context():
             must = [{"term": {"task": task_id}}]
-            sort = None
             if threshold_sec:
                 timestamp_ms = int(threshold_sec * 1000)
                 must.append(
@@ -1234,7 +1233,6 @@ class EventBLL(object):
                         }
                     }
                 )
-                sort = {"timestamp": {"order": "desc"}}
 
             if include_metrics:
                 must.append({"terms": {"metric": include_metrics}})
@@ -1245,7 +1243,6 @@ class EventBLL(object):
 
             es_req = {
                 "query": {"bool": {"must": must, **more_conditions}},
-                **({"sort": sort} if sort else {}),
             }
             es_res = delete_company_events(
                 es=self.es,
