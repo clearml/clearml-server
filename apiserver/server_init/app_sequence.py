@@ -52,6 +52,9 @@ class AppSequence:
     def _configure(self):
         CORS(self.app, **config.get("apiserver.cors"))
 
+        if get_bool("CLEARML_SKIP_COMPRESS_STREAM", default=False):
+            self.app.config["COMPRESS_STREAMS"] = False
+
         if get_bool("CLEARML_COMPRESS_RESP", default=True):
             Compress(self.app)
 
