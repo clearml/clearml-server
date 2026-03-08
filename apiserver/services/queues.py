@@ -22,6 +22,7 @@ from apiserver.apimodels.queues import (
     GetAllRequest,
     AddTaskRequest,
     RemoveTaskRequest,
+    MoveTaskToQueueRequest,
 )
 from apiserver.bll.model import Metadata
 from apiserver.bll.queue import QueueBLL
@@ -157,16 +158,60 @@ def delete(call: APICall, company_id, request: DeleteRequest):
     call.result.data = {"deleted": 1}
 
 
+def update_added_task_properties(queue: str, task: str, update_execution_queue: bool):
+    if update_execution_queue:
+        Task.objects(id=task).update(
+            execution__queue=queue, multi=False
+        )
+
+
+@endpoint("queues.move_task_to_queue")
+def move_task_to_queue(call: APICall, company_id, request: MoveTaskToQueueRequest):
+    removed = queue_bll.remove_task(
+        company_id=company_id,
+        user_id=call.identity.user,
+        queue_id=request.queue,
+        task_id=request.task,
+    )
+    if not removed:
+        return  {"moved": 0}
+
+    try:
+        queue_bll.add_task(
+            company_id=company_id,
+            queue_id=request.target_queue,
+            task_id=request.task,
+        )
+    except Exception as e:
+        # on error return task back to the source queue
+        queue_bll.add_task(
+            company_id=company_id,
+            queue_id=request.queue,
+            task_id=request.task,
+        )
+        raise e
+
+    update_added_task_properties(
+        queue=request.target_queue,
+        task=request.task,
+        update_execution_queue=request.update_execution_queue,
+    )
+
+    call.result.data = {"moved": 1}
+
+
 @endpoint("queues.add_task", min_version="2.4")
 def add_task(call: APICall, company_id, request: AddTaskRequest):
-    added = queue_bll.add_task(
+    queue_bll.add_task(
         company_id=company_id, queue_id=request.queue, task_id=request.task
     )
-    if added and request.update_execution_queue:
-        Task.objects(id=request.task).update(
-            execution__queue=request.queue, multi=False
-        )
-    call.result.data = {"added": added}
+    update_added_task_properties(
+        queue=request.queue,
+        task=request.task,
+        update_execution_queue=request.update_execution_queue,
+    )
+
+    call.result.data = {"added": 1}
 
 
 @endpoint("queues.get_next_task")

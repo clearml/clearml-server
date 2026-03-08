@@ -143,7 +143,7 @@ class QueueBLL(object):
         user_id: str,
         task_ids: Iterable[str],
         queue_id: str,
-        reason: str
+        reason: str,
     ) -> Sequence[str]:
         from apiserver.bll.task import ChangeStatusRequest
         tasks = []
@@ -280,32 +280,29 @@ class QueueBLL(object):
 
         return res
 
-    def add_task(self, company_id: str, queue_id: str, task_id: str) -> dict:
+    def add_task(self, company_id: str, queue_id: str, task_id: str):
         """
         Add the task to the queue and return the queue update results
         :raise errors.bad_request.TaskAlreadyQueued: if the task is already in the queue
         :raise errors.bad_request.InvalidQueueOrTaskNotQueued: if the queue update operation failed
         """
-        with translate_errors_context():
-            queue = self.get_by_id(company_id=company_id, queue_id=queue_id)
-            if any(e.task == task_id for e in queue.entries):
-                raise errors.bad_request.TaskAlreadyQueued(task=task_id)
+        queue = self.get_by_id(company_id=company_id, queue_id=queue_id)
+        if any(e.task == task_id for e in queue.entries):
+            raise errors.bad_request.TaskAlreadyQueued(task=task_id)
 
-            entry = Entry(added=datetime.utcnow(), task=task_id)
-            query = dict(id=queue_id, company=company_id)
-            res = Queue.objects(entries__task__ne=task_id, **query).update_one(
-                push__entries=entry, last_update=datetime.utcnow(), upsert=False
+        entry = Entry(added=datetime.utcnow(), task=task_id)
+        query = dict(id=queue_id, company=company_id)
+        res = Queue.objects(entries__task__ne=task_id, **query).update_one(
+            push__entries=entry, last_update=datetime.utcnow(), upsert=False
+        )
+
+        queue.reload()
+        self.metrics.log_queue_metrics_to_es(company_id=company_id, queues=[queue])
+
+        if not res:
+            raise errors.bad_request.InvalidQueueOrTaskNotQueued(
+                task=task_id, **query
             )
-
-            queue.reload()
-            self.metrics.log_queue_metrics_to_es(company_id=company_id, queues=[queue])
-
-            if not res:
-                raise errors.bad_request.InvalidQueueOrTaskNotQueued(
-                    task=task_id, **query
-                )
-
-            return res
 
     def get_next_task(
         self, company_id: str, queue_id: str, task_id: str = None
@@ -365,34 +362,40 @@ class QueueBLL(object):
 
         return tasks
 
-    def remove_task(self, company_id: str, user_id: str, queue_id: str, task_id: str, update_task_status: bool = False) -> int:
+    def remove_task(
+        self,
+        company_id: str,
+        user_id: str,
+        queue_id: str,
+        task_id: str,
+        update_task_status: bool = False,
+    ) -> int:
         """
         Removes the task from the queue and returns the number of removed items
         :raise errors.bad_request.InvalidQueueOrTaskNotQueued: if the task is not found in the queue
         """
-        with translate_errors_context():
-            queue = self.get_queue_with_task(
-                company_id=company_id, queue_id=queue_id, task_id=task_id
+        queue = self.get_queue_with_task(
+            company_id=company_id, queue_id=queue_id, task_id=task_id
+        )
+
+        entries_to_remove = [e for e in queue.entries if e.task == task_id]
+        query = dict(id=queue_id, company=company_id)
+        res = Queue.objects(entries__task=task_id, **query).update_one(
+            pull_all__entries=entries_to_remove, last_update=datetime.utcnow()
+        )
+        if res and update_task_status:
+            self._update_task_status_on_removal_from_queue(
+                company_id=company_id,
+                user_id=user_id,
+                task_ids=[task_id],
+                queue_id=queue_id,
+                reason=f"Task was removed from the queue {queue_id}",
             )
 
-            entries_to_remove = [e for e in queue.entries if e.task == task_id]
-            query = dict(id=queue_id, company=company_id)
-            res = Queue.objects(entries__task=task_id, **query).update_one(
-                pull_all__entries=entries_to_remove, last_update=datetime.utcnow()
-            )
-            if res and update_task_status:
-                self._update_task_status_on_removal_from_queue(
-                    company_id=company_id,
-                    user_id=user_id,
-                    task_ids=[task_id],
-                    queue_id=queue_id,
-                    reason=f"Task was removed from the queue {queue_id}",
-                )
+        queue.reload()
+        self.metrics.log_queue_metrics_to_es(company_id=company_id, queues=[queue])
 
-            queue.reload()
-            self.metrics.log_queue_metrics_to_es(company_id=company_id, queues=[queue])
-
-            return len(entries_to_remove) if res else 0
+        return len(entries_to_remove) if res else 0
 
     def reposition_task(
         self, company_id: str, queue_id: str, task_id: str, move_count: Union[int, str],

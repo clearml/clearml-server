@@ -71,14 +71,22 @@ class TestQueues(TestService):
         self.assertEqual(res.task.status, "queued")
         self.assertEqual(res.task.execution.queue, queue2)
 
-        res = self.api.queues.get_by_id(queue=queue2)
+        # move task
+        res = self.api.queues.move_task_to_queue(queue=queue2, task=tasks[0], target_queue=queue1)
+        self.assertEqual(res.moved, 1)
+        res = self.api.tasks.get_by_id(task=tasks[0])
+        self.assertEqual(res.task.status, "queued")
+        self.assertEqual(res.task.execution.queue, queue1)
+
+        res = self.api.queues.get_by_id(queue=queue1)
         self.assertQueueTasks(res.queue, [tasks[0]])
+
 
         # clear queue
         res = self.api.queues.clear_queue(queue=queue1)
-        self.assertEqual(res.removed_tasks, [])
-        res = self.api.queues.clear_queue(queue=queue2)
         self.assertEqual(res.removed_tasks, [tasks[0]])
+        res = self.api.queues.clear_queue(queue=queue2)
+        self.assertEqual(res.removed_tasks, [])
 
         res = self.api.tasks.get_by_id(task=tasks[0])
         self.assertEqual(res.task.status, "created")
