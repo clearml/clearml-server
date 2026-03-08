@@ -50,6 +50,7 @@ class Credentials(EmbeddedDocument):
     key = StringField(required=True)
     secret = StringField(required=True)
     label = StringField()
+    created = DateTimeField()
     last_used = DateTimeField()
     last_used_from = StringField()
 

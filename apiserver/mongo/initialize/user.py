@@ -30,7 +30,7 @@ def _ensure_user_credentials(
             user.save()
         return
 
-    new_credentials = Credentials(key=key, secret=secret)
+    new_credentials = Credentials(key=key, secret=secret, created=datetime.utcnow())
     if internal_user:
         log.info(f"Setting credentials for existing user {user.id} ({user.name})")
         user.credentials = [new_credentials]
@@ -77,7 +77,7 @@ def _ensure_auth_user(
         return user.id
 
     credentials = (
-        [Credentials(key=key, secret=secret)] if not revoke and key and secret else []
+        [Credentials(key=key, secret=secret, created=datetime.utcnow())] if not revoke and key and secret else []
     )
     log.info(f"Creating user: {user_data['name']}")
 

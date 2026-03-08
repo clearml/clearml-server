@@ -191,6 +191,7 @@ def get_credentials(call: APICall, _, __):
                     last_used=c.last_used,
                     label=c.label,
                     last_used_from=c.last_used_from,
+                    created=c.created,
                 )
                 for c in user.credentials
             ]
