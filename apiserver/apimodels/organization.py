@@ -68,13 +68,13 @@ class UsageAggFields(StringEnum):
     gpu_usage = auto()
 
 
-class UsageBreakdownKeys(StringEnum):
+class WorkloadBreakdownKeys(StringEnum):
     project = auto()
     user = auto()
     queue = auto()
 
 
-class GetProjectUsagesRequest(models.Base):
+class GetProjectWorkloadsRequest(models.Base):
     projects = fields.ListField(
         [str], required=True, validators=[Length(minimum_value=1)]
     )
@@ -82,7 +82,7 @@ class GetProjectUsagesRequest(models.Base):
     to_date: str = fields.StringField(required=True)
     include_development = fields.BoolField(default=False)
     breakdown_keys: Sequence[str] = fields.ListField(
-        items_types=[str], item_validators=[Enum(*UsageBreakdownKeys.values())]
+        items_types=[str], item_validators=[Enum(*WorkloadBreakdownKeys.values())]
     )
     usage_fields: Sequence[str] = fields.ListField(
         items_types=[str], item_validators=[Enum(*UsageAggFields.values())]

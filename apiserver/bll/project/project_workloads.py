@@ -7,7 +7,7 @@ from typing import Sequence, Mapping, Type
 from boltons.iterutils import bucketize
 from mongoengine import Document
 
-from apiserver.apimodels.organization import UsageBreakdownKeys, UsageAggFields
+from apiserver.apimodels.organization import WorkloadBreakdownKeys, UsageAggFields
 from apiserver.apierrors import errors
 from apiserver.config_repo import config
 from apiserver.database.model import User
@@ -19,19 +19,19 @@ from .sub_projects import _get_sub_projects
 log = config.logger(__file__)
 
 
-class ProjectUsages:
+class ProjectWorkloads:
     _default_cpu_usage = config.get("services.queues.resource_usages.cpu")
     _default_gpu_usage = config.get("services.queues.resource_usages.gpu")
-    _conf = config.get("services.organization.project_usages")
+    _conf = config.get("services.organization.project_workloads")
     _excluded_task_tags = _conf.get("excluded_task_tags", [])
     _excluded_task_types = _conf.get("excluded_task_types", [])
     _exclude_app_parent_tasks = _conf.get("exclude_app_parent_tasks", True)
     _exclude_tasks_without_queue = _conf.get("exclude_tasks_without_queue", True)
 
     _field_to_cls = {
-        UsageBreakdownKeys.project: Project,
-        UsageBreakdownKeys.user: User,
-        UsageBreakdownKeys.queue: Queue,
+        WorkloadBreakdownKeys.project: Project,
+        WorkloadBreakdownKeys.user: User,
+        WorkloadBreakdownKeys.queue: Queue,
     }
     _other_q_id = "_other_"
 
@@ -341,7 +341,7 @@ class ProjectUsages:
             )
 
     @classmethod
-    def get_project_usages_internal(
+    def get_project_workloads_internal(
         cls,
         company_id: str,
         from_date: datetime,
@@ -512,10 +512,14 @@ class ProjectUsages:
         if date_str.upper().endswith("Z"):
             date_str = date_str[:-1]
 
-        return datetime.fromisoformat(date_str)
+        res = datetime.fromisoformat(date_str)
+        if res.tzinfo is None:
+            res = res.replace(tzinfo=timezone.utc)
+
+        return res
 
     @classmethod
-    def get_project_usages(
+    def get_project_workloads(
         cls,
         company_id: str,
         project_ids: Sequence[str],
@@ -534,9 +538,9 @@ class ProjectUsages:
         to_day_str and from_date_str should contain date-times in ISO format with the timezone
         """
         breakdown_keys = breakdown_keys or (
-            UsageBreakdownKeys.project,
-            UsageBreakdownKeys.queue,
-            UsageBreakdownKeys.user,
+            WorkloadBreakdownKeys.project,
+            WorkloadBreakdownKeys.queue,
+            WorkloadBreakdownKeys.user,
         )
         usage_fields = usage_fields or (
             UsageAggFields.duration,
@@ -586,7 +590,7 @@ class ProjectUsages:
                 for child in children
             }
 
-        return cls.get_project_usages_internal(
+        return cls.get_project_workloads_internal(
             company_id=company_id,
             from_date=from_date,
             to_date=to_date,
