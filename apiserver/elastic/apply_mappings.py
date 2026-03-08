@@ -8,13 +8,23 @@ import logging
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
 
+from apiserver.config_repo import  config
 from elasticsearch import Elasticsearch, exceptions
 
-HERE = Path(__file__).resolve().parent
+from apiserver.utilities.dicts import nested_set
+
 logging.getLogger("elasticsearch").setLevel(logging.WARNING)
 logging.getLogger("elastic_transport").setLevel(logging.WARNING)
+log = config.logger(__file__)
+HERE = Path(__file__).resolve().parent
+conf = config.get("services._elastic")
 
 
+_setting_overrides = {
+    "number_of_replicas": "number_of_replicas",
+    "number_of_shards": "number_of_shards",
+    "total_fields_limit": "index.mapping.total_fields.limit",
+}
 def apply_mappings_to_cluster(
     hosts: Sequence,
     key: Optional[str] = None,
@@ -30,19 +40,20 @@ def apply_mappings_to_cluster(
             res = es.cluster.put_component_template(name=template_name, body=body)
             return {"component_template": template_name, "result": res}
 
-    def _send_index_template(it_file):
+    def _send_index_template(it_file, overrides=None):
+        overrides = overrides or {}
         with it_file.open() as json_data:
             body = json.load(json_data)
             template_name = f"{it_file.stem}"
+            for name, target in _setting_overrides.items():
+                setting = overrides.get(name, None)
+                if setting is not None:
+                    nested_set(body, ("template", "settings", target), setting)
+                    log.info(
+                        f"ES template setting {target} is set to {setting} for {template_name}"
+                    )
             res = es.indices.put_index_template(name=template_name, body=body)
             return {"index_template": template_name, "result": res}
-
-    # def _send_legacy_template(f):
-    #     with f.open() as json_data:
-    #         data = json.load(json_data)
-    #         template_name = f.stem
-    #         res = es.indices.put_template(name=template_name, body=data)
-    #         return {"mapping": template_name, "result": res}
 
     def _delete_legacy_templates(legacy_folder):
         res_list = []
@@ -69,8 +80,11 @@ def apply_mappings_to_cluster(
     for f in folders:
         for ct in (f / "component_templates").glob("*.json"):
             ret.append(_send_component_template(ct))
+
+        current_key = f.stem
+        conf_data = conf.get(f"mappings.{current_key}", None)
         for it in f.glob("*.json"):
-            ret.append(_send_index_template(it))
+            ret.append(_send_index_template(it, conf_data))
 
     legacy_root = HERE / "mappings"
     for f in folders:
@@ -80,13 +94,6 @@ def apply_mappings_to_cluster(
         ret.extend(_delete_legacy_templates(legacy_f))
 
     return ret
-    # p = HERE / "mappings"
-    # if key:
-    #     files = (p / key).glob("*.json")
-    # else:
-    #     files = p.glob("**/*.json")
-    #
-    # return [_send_template(f) for f in files]
 
 
 def parse_args():
