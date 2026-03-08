@@ -43,7 +43,7 @@ from apiserver.redis_manager import redman
 from apiserver.services.utils import validate_tags, escape_dict_field, escape_dict
 from apiserver.service_repo.auth import Identity
 from apiserver.utilities.dicts import nested_set
-from apiserver.utilities.parameter_key_escaper import ParameterKeyEscaper
+from apiserver.utilities.parameter_key_escaper import mongoengine_safe
 from .artifacts import artifacts_prepare_for_save
 from .param_utils import params_prepare_for_save
 from .utils import (
@@ -105,7 +105,7 @@ class TaskBLL:
         task_id: str,
         add_or_update: Dict[str, Any],
         remove: List[str],
-        force: bool
+        force: bool,
     ) -> int:
         task = get_task_for_update(
             company_id=company_id, task_id=task_id, force=force, identity=identity
@@ -113,13 +113,10 @@ class TaskBLL:
 
         update_cmds = {
             **{
-                f"set__runtime__{ParameterKeyEscaper.escape(name)}": value
+                f"set__runtime__{mongoengine_safe(name)}": value
                 for name, value in add_or_update.items()
             },
-            **{
-                f"unset__runtime__{ParameterKeyEscaper.escape(name)}": 1
-                for name in remove
-            }
+            **{f"unset__runtime__{mongoengine_safe(name)}": 1 for name in remove},
         }
 
         if not update_cmds:
@@ -184,6 +181,7 @@ class TaskBLL:
     task_script_stripped_fields = set(
         [f for f, v in get_fields_attr(Script, "strip").items() if v]
     )
+
     @classmethod
     def strip_script_fields(cls, script: dict):
         """
