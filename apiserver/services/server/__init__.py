@@ -72,7 +72,7 @@ def info_2_8(call: APICall):
 
 
 @endpoint("server.info", min_version="2.12")
-def info_2_8(call: APICall):
+def info_2_12(call: APICall):
     info(call)
     call.result.data["api_version"] = str(ServiceRepo.max_endpoint_version())
 

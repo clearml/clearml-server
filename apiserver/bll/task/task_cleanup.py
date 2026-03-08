@@ -185,7 +185,7 @@ def schedule_for_delete(
                             args=True, fragment=True, path=parsed.path.segments[-1]
                         ).url.rstrip("/")
                 except Exception as ex:
-                    pass
+                    log.warning(f"Could not parse url: {url}. {str(ex)}")
 
             to_delete = folder or url
             if to_delete in scheduled_to_delete:

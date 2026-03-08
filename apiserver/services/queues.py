@@ -60,7 +60,7 @@ def get_by_id(call: APICall, company_id, request: GetByIdRequest):
 
 
 @endpoint("queues.get_default", min_version="2.4", response_data_model=GetDefaultResp)
-def get_by_id(call: APICall):
+def get_by_id_2_4(call: APICall):
     queue = queue_bll.get_default(call.identity.company)
     call.result.data_model = GetDefaultResp(id=queue.id, name=queue.name)
 

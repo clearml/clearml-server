@@ -208,7 +208,7 @@ class FileserverStorage(Storage):
         fileserver_host = fileserver_host or config.get("hosts.fileserver", None)
         self.host = fileserver_host.rstrip("/")
         if not self.host:
-            log.warning(f"Fileserver host not configured")
+            log.warning("Fileserver host not configured")
 
         def _parse_url_prefix(prefix) -> Tuple[str, str]:
             url = furl(prefix)

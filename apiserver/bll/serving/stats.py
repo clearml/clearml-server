@@ -213,7 +213,7 @@ class ServingStats:
         metric_type = metrics_request.metric_type
         agg_data = cls.agg_fields.get(metric_type)
         if not agg_data:
-            raise NotImplemented(f"Charts for {metric_type} not implemented")
+            raise NotImplementedError(f"Charts for {metric_type} not implemented")
 
         agg_field, title, agg_type, multiplier = agg_data
         if agg_type == _AggregationType.sum:

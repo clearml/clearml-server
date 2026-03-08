@@ -96,7 +96,7 @@ def init_mongo_data():
             internal_user_emails.update(user.email for user in fixed_users)
 
         if internal_user_emails and config.get(
-            f"apiserver.auth.delete_missing_autocreated_users", True
+            "apiserver.auth.delete_missing_autocreated_users", True
         ):
             for user in AuthUser.objects(
                 company=company_id, autocreated=True, email__nin=internal_user_emails

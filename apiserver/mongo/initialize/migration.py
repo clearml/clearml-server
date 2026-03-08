@@ -76,7 +76,7 @@ def _apply_migrations(log: Logger):
     """
     log = log.getChild(Path(__file__).stem)
 
-    log.info(f"Started mongodb migrations")
+    log.info("Started mongodb migrations")
 
     _ensure_mongodb_version()
 

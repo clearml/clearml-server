@@ -71,7 +71,7 @@ class DatabaseFactory:
             if override_username:
                 log.info(f"Using override mongodb username {override_username}")
             if override_password:
-                log.info(f"Using override mongodb password ******")
+                log.info("Using override mongodb password ******")
             if override_query:
                 log.info(f"Using override mongodb query {override_query}")
 

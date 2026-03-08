@@ -257,7 +257,7 @@ class PrePopulate:
                 map_file, entities=entities, metadata_hash=metadata_hash
             )
             if not updated:
-                _print(f"There are no updates from the last export")
+                _print("There are no updates from the last export")
                 return old_files
 
             for old in old_files:

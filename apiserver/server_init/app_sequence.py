@@ -93,7 +93,7 @@ class AppSequence:
                 and (info.es_connection_error or empty_es)
                 and get_last_server_version() < Version("0.16.0")
             ):
-                log.info(f"ES database seems not migrated")
+                log.info("ES database seems not migrated")
                 info.missed_es_upgrade = True
 
             if info.es_connection_error and not info.missed_es_upgrade:

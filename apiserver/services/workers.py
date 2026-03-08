@@ -50,7 +50,7 @@ def get_all(call: APICall, company_id: str, request: GetAllRequest):
 @endpoint(
     "workers.get_count", request_data_model=GetCountRequest,
 )
-def get_all(call: APICall, company_id: str, request: GetCountRequest):
+def get_count(call: APICall, company_id: str, request: GetCountRequest):
     call.result.data = {
         "count": worker_bll.get_count(
             company_id,

@@ -216,7 +216,7 @@ class EventBLL(object):
 
             model_event = event["model_event"]
             if model_event and event_type == EventType.task_log.value:
-                errors_per_type[f"Task log events are not supported for models"] += 1
+                errors_per_type["Task log events are not supported for models"] += 1
                 continue
 
             task_or_model_id = event.get("task")
@@ -1267,4 +1267,4 @@ class EventBLL(object):
         except elasticsearch.exceptions.RequestError:
             pass
         except Exception as ex:
-            log.exception("Failed clearing scroll %s", scroll_id)
+            log.exception(f"Failed clearing scroll {scroll_id}. {str(ex)}")

@@ -20,7 +20,7 @@ class ParameterKeyEscaper:
         value = value.strip()
         if not value:
             raise errors.bad_request.ValidationError(
-                f"Empty key is not allowed"
+                "Empty key is not allowed"
             )
 
         value = value.replace("%", "%%")

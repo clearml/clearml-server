@@ -92,7 +92,7 @@ class AuthHandler:
         except HTTPException:
             raise
         except Exception:
-            log.exception(f"Failed decoding token")
+            log.exception("Failed decoding token")
             abort(500)
 
     def validate(self, request: Request):

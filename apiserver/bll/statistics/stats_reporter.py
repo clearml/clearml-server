@@ -95,7 +95,7 @@ class StatisticsReporter:
                 session.post(url, data=dumps(report))
 
             except Exception as ex:
-                pass
+                log.warning(f"Failed reporting stats: {str(ex)}")
 
     @classmethod
     def get_statistics(cls, company_id: str) -> dict:

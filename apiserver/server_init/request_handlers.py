@@ -93,7 +93,7 @@ class RequestHandlers:
                         filenames = f"filename={quote_header_value(simple)}; filename*=UTF-8''{quoted}"
                     else:
                         filenames = f"filename={quote_header_value(download_name)}"
-                    headers = {f"Content-Disposition": f"attachment; {filenames}"}
+                    headers = {"Content-Disposition": f"attachment; {filenames}"}
 
                 response = Response(
                     content,

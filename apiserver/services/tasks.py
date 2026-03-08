@@ -1484,7 +1484,7 @@ def make_public(call: APICall, company_id, request: MakePublicRequest):
 
 
 @endpoint("tasks.make_private", min_version="2.9", request_data_model=MakePublicRequest)
-def make_public(call: APICall, company_id, request: MakePublicRequest):
+def make_private(call: APICall, company_id, request: MakePublicRequest):
     call.result.data = Task.set_public(
         company_id=company_id,
         user_id=call.identity.user,

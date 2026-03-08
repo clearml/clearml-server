@@ -201,7 +201,6 @@ def escape_paths(paths: Sequence[str]) -> Sequence[str]:
         ("execution.model_desc", "configuration"),
         ("execution.docker_cmd", "container"),
     ):
-        path: str
         paths = [path.replace(old_prefix, new_prefix) for path in paths]
 
     for prefix in (

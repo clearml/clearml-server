@@ -301,7 +301,7 @@ def download_for_get_all(call: APICall, company, request: DownloadForGetAllReque
     request_data = redis.get(f"get_all_download_{request.prepare_id}")
     if not request_data:
         raise errors.bad_request.InvalidId(
-            f"prepare ID not found", prepare_id=request.prepare_id
+            "prepare ID not found", prepare_id=request.prepare_id
         )
 
     try:

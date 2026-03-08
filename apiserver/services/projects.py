@@ -472,7 +472,7 @@ def get_hyperparam_values(
 
 
 @endpoint("projects.get_project_tags")
-def get_tags(call: APICall, company, request: ProjectTagsRequest):
+def get_project_tags(call: APICall, company, request: ProjectTagsRequest):
     tags, system_tags = project_bll.get_project_tags(
         company,
         include_system=request.include_system,
@@ -485,7 +485,7 @@ def get_tags(call: APICall, company, request: ProjectTagsRequest):
 @endpoint(
     "projects.get_task_tags", min_version="2.8", request_data_model=ProjectTagsRequest
 )
-def get_tags(call: APICall, company, request: ProjectTagsRequest):
+def get_task_tags(call: APICall, company, request: ProjectTagsRequest):
     ret = org_bll.get_tags(
         company,
         Tags.Task,
@@ -499,7 +499,7 @@ def get_tags(call: APICall, company, request: ProjectTagsRequest):
 @endpoint(
     "projects.get_model_tags", min_version="2.8", request_data_model=ProjectTagsRequest
 )
-def get_tags(call: APICall, company, request: ProjectTagsRequest):
+def get_model_tags(call: APICall, company, request: ProjectTagsRequest):
     ret = org_bll.get_tags(
         company,
         Tags.Model,
@@ -526,7 +526,7 @@ def make_public(call: APICall, company_id, request: MakePublicRequest):
 @endpoint(
     "projects.make_private", min_version="2.9", request_data_model=MakePublicRequest
 )
-def make_public(call: APICall, company_id, request: MakePublicRequest):
+def make_private(call: APICall, company_id, request: MakePublicRequest):
     call.result.data = Project.set_public(
         company_id=company_id,
         user_id=call.identity.user,
