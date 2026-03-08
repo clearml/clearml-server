@@ -33,13 +33,15 @@ def _validate_project_name(project_name: str, raise_if_empty=True) -> Tuple[str,
 def _get_basename_from_name(name: str, raise_on_blank: bool = True) -> str:
     basename = name.split("/")[-1].strip()
     if raise_on_blank and (Project.min_name_length > len(basename)):
-        raise errors.bad_request.ValidationError("Project name cannot be blank")
+        raise errors.bad_request.ValidationError(
+            f"Project name should be at least {Project.min_name_length} characters", name=basename
+        )
 
     return basename
 
 
 def _ensure_project(
-    company: str, user: str, name: str, creation_params: dict = None
+        company: str, user: str, name: str, creation_params: dict = None
 ) -> Optional[Project]:
     """
     Makes sure that the project with the given name exists
@@ -99,9 +101,9 @@ def _save_under_parent(project: Project, parent: Optional[Project]):
 
 
 def _get_writable_project_from_name(
-    company,
-    name,
-    _only: Optional[Sequence[str]] = ("id", "name", "path", "company", "parent"),
+        company,
+        name,
+        _only: Optional[Sequence[str]] = ("id", "name", "path", "company", "parent"),
 ) -> Optional[Project]:
     """
     Return a project from name. If the project not found then return None
@@ -127,10 +129,10 @@ ProjectsChildren = Mapping[str, Sequence[Project]]
 
 
 def _get_sub_projects(
-    project_ids: Sequence[str],
-    _only: Sequence[str] = ("id", "path"),
-    search_hidden=True,
-    allowed_ids: Sequence[str] = None,
+        project_ids: Sequence[str],
+        _only: Sequence[str] = ("id", "path"),
+        search_hidden=True,
+        allowed_ids: Sequence[str] = None,
 ) -> ProjectsChildren:
     """
     Return the list of child projects of all the levels for the parent project ids
@@ -170,11 +172,11 @@ def _ids_with_children(project_ids: Sequence[str]) -> Sequence[str]:
 
 
 def _update_subproject_names(
-    project: Project,
-    children: Sequence[Project],
-    old_name: str,
-    update_path: bool = False,
-    old_path: Sequence[str] = None,
+        project: Project,
+        children: Sequence[Project],
+        old_name: str,
+        update_path: bool = False,
+        old_path: Sequence[str] = None,
 ) -> int:
     """
     Update sub project names when the base project name changes
@@ -198,7 +200,7 @@ def _update_subproject_names(
 
 
 def _reposition_project_with_children(
-    project: Project, children: Sequence[Project], parent: Project
+        project: Project, children: Sequence[Project], parent: Project
 ) -> int:
     new_location = parent.name if parent else None
     old_name = project.name
