@@ -57,7 +57,10 @@ class QueueBLL(object):
             return queue
 
     def get_by_name(
-        self, company_id: str, queue_name: str, only: Optional[Sequence[str]] = None,
+        self,
+        company_id: str,
+        queue_name: str,
+        only: Optional[Sequence[str]] = None,
     ) -> Queue:
         qs = Queue.objects(name=queue_name, company=company_id)
         if only:
@@ -146,6 +149,7 @@ class QueueBLL(object):
         reason: str,
     ) -> Sequence[str]:
         from apiserver.bll.task import ChangeStatusRequest
+
         tasks = []
         for task_id in task_ids:
             try:
@@ -183,7 +187,9 @@ class QueueBLL(object):
 
         return tasks
 
-    def delete(self, company_id: str, user_id: str, queue_id: str, force: bool) -> Sequence[str]:
+    def delete(
+        self, company_id: str, user_id: str, queue_id: str, force: bool
+    ) -> Sequence[str]:
         """
         Delete the queue
         :raise errors.bad_request.InvalidQueueId: if the queue is not found
@@ -225,9 +231,11 @@ class QueueBLL(object):
                 parameters=query_dict,
                 query_dict=query_dict,
                 query=query,
-                projection_fields=self._get_task_entries_projection(max_task_entries)
-                if max_task_entries
-                else None,
+                projection_fields=(
+                    self._get_task_entries_projection(max_task_entries)
+                    if max_task_entries
+                    else None
+                ),
                 ret_params=ret_params,
             )
 
@@ -238,30 +246,59 @@ class QueueBLL(object):
 
         return False
 
+    @staticmethod
+    def _field_requested(projection: Sequence[str], field: str) -> bool:
+        if not projection:
+            return True
+
+        return any(f in ("*", field) or f.startswith(f"{field}.") for f in projection)
+
     def get_queue_infos(
         self,
         company_id: str,
         query_dict: dict,
         query: Q = None,
         max_task_entries: int = None,
+        count_task_entries: bool = None,
         ret_params: dict = None,
     ) -> Sequence[dict]:
         """
         Get infos on all the company queues, including queue tasks and workers
         """
-        projection = Queue.get_extra_projection("entries.task.name")
-        with translate_errors_context():
-            res = Queue.get_many_with_join(
-                company=company_id,
-                query_dict=query_dict,
-                query=query,
-                override_projection=projection,
-                projection_fields=self._get_task_entries_projection(max_task_entries)
-                if max_task_entries
-                else None,
-                ret_params=ret_params,
-            )
+        projection = query_dict.get("projection") or query_dict.get("only_fields")
+        task_name = "entries.task.name"
+        workers_requested = False
+        if not projection:
+            projection = Queue.get_extra_projection(task_name)
+            workers_requested = True
+        else:
+            if self._field_requested(projection, "entries") and task_name not in projection:
+                projection.append(task_name)
+            if self._field_requested(projection, "workers"):
+                workers_requested = True
+                projection = [
+                    f
+                    for f in projection
+                    if not (f == "workers" or f.startswith("workers."))
+                ]
 
+        res = Queue.get_many_with_join(
+            company=company_id,
+            query_dict=query_dict,
+            query=query,
+            # do not pass empty override projection because it would result in no override
+            override_projection=projection or ["id"],
+            projection_fields=(
+                self._get_task_entries_projection(max_task_entries)
+                if max_task_entries
+                else None
+            ),
+            ret_params=ret_params,
+        )
+        if not res:
+            return res
+
+        if workers_requested:
             queue_workers = defaultdict(list)
             for worker in self.worker_bll.get_all(company_id):
                 for queue in worker.queues:
@@ -277,6 +314,20 @@ class QueueBLL(object):
                     }
                     for w in queue_workers.get(item["id"], [])
                 ]
+
+        if count_task_entries:
+            queue_ids = [q["id"] for q in res]
+            counts = {
+                item["_id"]: item["count"]
+                for item in Queue.aggregate(
+                    [
+                        {"$match": {"_id": {"$in": queue_ids}}},
+                        {"$project": {"count": {"$size": "$entries"}}},
+                    ]
+                )
+            }
+            for q in res:
+                q["entries_count"] = counts.get(q["id"])
 
         return res
 
@@ -300,9 +351,7 @@ class QueueBLL(object):
         self.metrics.log_queue_metrics_to_es(company_id=company_id, queues=[queue])
 
         if not res:
-            raise errors.bad_request.InvalidQueueOrTaskNotQueued(
-                task=task_id, **query
-            )
+            raise errors.bad_request.InvalidQueueOrTaskNotQueued(task=task_id, **query)
 
     def get_next_task(
         self, company_id: str, queue_id: str, task_id: str = None
@@ -341,9 +390,7 @@ class QueueBLL(object):
     ):
         queue = Queue.objects(company=company_id, id=queue_id).first()
         if not queue:
-            raise errors.bad_request.InvalidQueueId(
-                queue=queue_id
-            )
+            raise errors.bad_request.InvalidQueueId(queue=queue_id)
 
         if not queue.entries:
             return []
@@ -398,7 +445,11 @@ class QueueBLL(object):
         return len(entries_to_remove) if res else 0
 
     def reposition_task(
-        self, company_id: str, queue_id: str, task_id: str, move_count: Union[int, str],
+        self,
+        company_id: str,
+        queue_id: str,
+        task_id: str,
+        move_count: Union[int, str],
     ) -> int:
         """
         Moves the task in the queue to the position calculated by pos_func

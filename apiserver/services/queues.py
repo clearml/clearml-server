@@ -93,6 +93,7 @@ def get_all_ex(call: APICall, company: str, request: GetAllRequest):
         query_dict=call_data,
         query=_hidden_query(call_data),
         max_task_entries=request.max_task_entries,
+        count_task_entries=request.count_task_entries,
         ret_params=ret_params,
     )
     conform_queue_data(call, queues)

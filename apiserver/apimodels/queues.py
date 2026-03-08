@@ -34,6 +34,7 @@ class GetByIdRequest(QueueRequest):
 class GetAllRequest(Base):
     max_task_entries = IntField()
     search_hidden = BoolField(default=False)
+    count_task_entries = BoolField(default=False)
 
 
 class GetNextTaskRequest(QueueRequest):
