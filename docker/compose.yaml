@@ -59,7 +59,7 @@ services:
       nofile:
         soft: 65536
         hard: 65536
-    image: elasticsearch:8.17.0
+    image: elasticsearch:8.19.9
     restart: unless-stopped
     volumes:
       - /opt/clearml/data/elastic_7:/usr/share/elasticsearch/data
