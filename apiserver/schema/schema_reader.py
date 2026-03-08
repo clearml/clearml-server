@@ -72,7 +72,6 @@ class EndpointSchema:
 
 
 class EndpointVersionsGroup:
-
     endpoints: Sequence[EndpointSchema]
     allow_roles: Sequence[str]
     internal: bool
@@ -105,6 +104,9 @@ class EndpointVersionsGroup:
         self.full_name = f"{service_name}.{action_name}"
         self.definitions = definitions or {}
         self.defaults = defaults or {}
+        self._init_endpoints(conf)
+
+    def _init_endpoints(self, conf):
         self.internal = self._pop_attr_with_default(conf, "internal")
         self.allow_roles = self._pop_attr_with_default(conf, "allow_roles")
         self.authorize = self._pop_attr_with_default(conf, "authorize")
