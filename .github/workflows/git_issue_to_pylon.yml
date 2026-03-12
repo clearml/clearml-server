@@ -1,0 +1,23 @@
+name: git_issue_to_pylon
+
+on:
+  issues: 
+    types: [opened]
+
+jobs:
+  pylon_sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Pylon API
+        run: |
+            curl --request POST \
+              --url https://api.usepylon.com/issues \
+              --header 'Authorization: Bearer ${{ secrets.PYLON_API_KEY }}' \
+              --header 'Content-Type: application/json' \
+              --data '{
+                "title": "${{ github.event.issue.title }}",
+                "body_html": "<p><strong>Repo:</strong> ${{ github.event.repository.full_name }}</p><p><strong>Opened by:</strong> ${{ github.event.issue.user.login }}</p><p>${{ github.event.issue.body }}</p><br/><a href=\"${{ github.event.issue.html_url }}\">View on GitHub</a>",
+                "account_id": "${{ secrets.PYLON_ACCOUNT_ID }}",
+                "tags": ["git issue"],
+                "destination_metadata": { "destination": "internal" }
+              }'
