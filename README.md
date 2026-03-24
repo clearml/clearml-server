@@ -203,9 +203,11 @@ For feature requests or bug reports, please use [GitHub issues](https://github.c
 
 Additionally, you can always find us at *clearml@allegro.ai*
 
-## License
+## License and Legal Information
 
-[Server Side Public License v1.0](https://github.com/mongodb/mongo/blob/master/LICENSE-Community.txt)
+Use of this **ClearML Server** is governed by ClearML's [Terms of Use](https://clear.ml/legal/open-source/terms) and [Privacy Policy](https://clear.ml/legal/open-source/privacy).
+
+The **ClearML Server** is provided under the [Server Side Public License v1.0](https://github.com/mongodb/mongo/blob/master/LICENSE-Community.txt)
 
 The **ClearML Server** relies on both [MongoDB](https://github.com/mongodb/mongo) and [ElasticSearch](https://github.com/elastic/elasticsearch).
 With the recent changes in both MongoDB's and ElasticSearch's OSS license, we feel it is our responsibility as a
