@@ -1,22 +1,30 @@
 #!/usr/bin/env python
-from __future__ import print_function
-
 import argparse
 import json
 import os
+import reprlib
 import sys
 import time
 from itertools import groupby
 from operator import itemgetter
-
-import pyhocon
-import six
-import yaml
-from colors import color
-from jsonschema import validate, ValidationError as JSONSchemaValidationError
-from jsonschema.validators import validator_for
 from pathlib import Path
+from typing import OrderedDict, cast
+
+import colorful as cf
+import pyhocon
+import regex
+import yaml
+from boltons.iterutils import default_enter, remap
+from jsonschema import (
+    Draft202012Validator,
+    ErrorTree,
+)
+from jsonschema import (
+    ValidationError as JSONSchemaValidationError,
+)
+from jsonschema.validators import validator_for
 from pyparsing import ParseBaseException
+from treelib.tree import Tree, Node
 
 LINTER_URL = "https://www.jsonschemavalidator.net/"
 
@@ -87,7 +95,7 @@ class ValidationError(Exception):
         self.message = self.args[0]
 
     def report(self, schema_file):
-        message = color(schema_file, fg='red')
+        message = cf.red(schema_file)
         if self.message:
             message += ": {}".format(self.message)
         print(message)
@@ -107,8 +115,17 @@ class InvalidFile(ValidationError):
         if exc_type:
             self.message = "{}: {}".format(exc_type.__name__, message)
 
-    def raise_original(self):
-        six.reraise(*self.exc_info)
+
+def as_dict(d: pyhocon.ConfigTree) -> dict:
+    """
+    Convert ConfigTree to plain dict
+    """
+    def enter(path, key, value):
+        if isinstance(value, OrderedDict):
+            return dict(), value.items()
+        return default_enter(path, key, value)
+
+    return remap(d.as_plain_ordered_dict(), enter=enter)
 
 
 def load_hocon(name):
@@ -118,7 +135,7 @@ def load_hocon(name):
 
     :param name: file path
     """
-    return pyhocon.ConfigFactory.parse_file(name).as_plain_ordered_dict()
+    return as_dict(cast(pyhocon.ConfigTree, pyhocon.ConfigFactory.parse_file(name)))
 
 
 def validate_ascii_only(name):
@@ -155,19 +172,70 @@ def validate_file(meta, name):
         raise InvalidFile(repr(e))
 
     try:
-        validate(schema, meta)
+        meta.validate(schema)
         return schema
     except JSONSchemaValidationError as e:
-        path = "->".join(e.absolute_path)
-        message = "{}: {}".format(path, e.args[0])
+        visualize(ErrorTree(meta.iter_errors(schema)))
+        path = "->".join(map(str, e.absolute_path))
+        message = "{}: {}".format(path, reprlib.repr(e.args[0]))  # truncate
         raise InvalidFile(message)
     except Exception as e:
         raise InvalidFile(str(e))
 
 
+def visualize(errors: ErrorTree):
+    """
+    Visualize all errors as a tree structure
+    """
+    tree = Tree()
+
+    # detect dictionaries by nested curly braces
+    p = r"""
+    (?<brace>
+        \{
+        (?:
+            [^{}]++      # anything but braces
+        | (?&brace)    # recurse for nesting
+        )*
+        \}
+    )"""
+
+    pattern = regex.compile(p, regex.VERBOSE)
+
+    def message(error: JSONSchemaValidationError) -> str:
+        return pattern.sub("<redacted>", error.message)
+
+    def format_error(error: JSONSchemaValidationError) -> str:
+        return f"{cf.green('.'.join(error.path))} ${cf.magenta('.'.join(map(str, error.schema_path)))}: {message(error)}"
+
+    def walk_error(parent: Node | None, error: JSONSchemaValidationError) -> None:
+        for sub_error in error.context or []:
+            parent_ = tree.create_node(
+                data=sub_error, parent=parent, tag=format_error(sub_error)
+            )
+            walk_error(parent_, sub_error)
+
+    def walk(parent: Node | None, error_node: ErrorTree):
+        parent = tree.create_node(
+            data=error_node.errors,
+            parent=parent,
+            tag="\n".join(map(format_error, error_node.errors.values())),
+        )
+        for v in error_node.errors.values():
+            walk_error(parent, v)
+        for v in error_node._contents.values():
+            walk(parent, v)
+
+    walk(None, errors)
+    tree.show()
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("files", nargs="+")
+    parser.add_argument(
+        "--stop", "-s", action="store_true", help="stop after first error"
+    )
     parser.add_argument(
         "--linter", "-l", action="store_true", help="open jsonschema linter in browser"
     )
@@ -187,6 +255,8 @@ def parse_args():
 
 
 def open_linter(driver, meta, schema):
+    if not driver.operational():
+        raise Exception("selenium not installed")
     driver.maximize_window()
     driver.get(LINTER_URL)
     storage = LocalStorage(driver)
@@ -199,12 +269,15 @@ class LazyDriver(object):
     def __init__(self):
         self._driver = None
         try:
-            from selenium import webdriver, common
+            from selenium import common, webdriver
         except ImportError:
             webdriver = None
             common = None
         self.webdriver = webdriver
         self.common = common
+
+    def operational(self) -> bool:
+        return self.driver is not None
 
     def __getattr__(self, item):
         return getattr(self.driver, item)
@@ -229,6 +302,7 @@ class LazyDriver(object):
         return self._driver
 
     def wait(self):
+        assert self.common
         if not self._driver:
             return
         try:
@@ -252,6 +326,7 @@ def main(here: str):
     args = parse_args()
     meta = load_hocon(here + "/meta.conf")
     validator_for(meta).check_schema(meta)
+    meta = Draft202012Validator(load_hocon(here + "/meta.conf"))
 
     driver = LazyDriver()
 
@@ -263,12 +338,15 @@ def main(here: str):
             continue
 
         try:
+            print(cf.bold(f"checking: {schema_file}"))
             schema = validate_file(meta, schema_file)
         except InvalidFile as e:
-            if args.linter and driver.driver:
+            if args.linter:
                 open_linter(driver, meta, load_hocon(schema_file))
             elif args.raise_:
-                e.raise_original()
+                raise
+            elif args.stop:
+                break
 
             e.report(schema_file)
         except ValidationError as e:
@@ -279,7 +357,7 @@ def main(here: str):
                 remove_description(value)
                 collisions.setdefault(def_name, {})[service_name] = value
 
-    warning = color("warning", fg="red")
+    warning = cf.red("warning")
 
     if args.detect_collisions:
         for name, values in collisions.items():

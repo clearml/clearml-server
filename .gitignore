@@ -1,4 +1,8 @@
 syntax: glob
+apiserver/apierrors/errors
+_cache.json
+.venv
+.python-version
 .idea
 apierrors/errors
 static/build.json
