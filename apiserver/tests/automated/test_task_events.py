@@ -602,11 +602,32 @@ class TestTaskEvents(TestService):
         self.assertEqual(len(data["x"]), samples)
         self.assertEqual(len(data["y"]), samples)
         for curr in range(samples):
-            self.assertEqual(data["x"][curr], curr * interval)
-            self.assertEqual(
-                data["y"][curr],
-                mean(v for v in range(curr * interval, (curr + 1) * interval)),
-            )
+            bucket_mean = mean(range(curr * interval, (curr + 1) * interval))
+            self.assertEqual(data["x"][curr], round(bucket_mean))
+            self.assertEqual(data["y"][curr], bucket_mean)
+
+    def test_task_sparse_metric_value_intervals(self):
+        """Downsampled events that fall one per interval are returned at their own iterations"""
+        metric = "Metric1"
+        variant = "Variant1"
+        iterations = list(range(5, 500, 10))
+        task = self._temp_task()
+        events = [
+            {
+                **self._create_task_event("training_stats_scalar", task, iteration),
+                "metric": metric,
+                "variant": variant,
+                "value": iteration,
+            }
+            for iteration in iterations
+        ]
+        self.send_batch(events)
+
+        data = self.api.events.scalar_metrics_iter_histogram(
+            task=task, samples=len(iterations)
+        )
+        self.assertEqual(data[metric][variant]["x"], iterations)
+        self.assertEqual(data[metric][variant]["y"], iterations)
 
     def test_multitask_plots(self):
         task1 = self._temp_task()
