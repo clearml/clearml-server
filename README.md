@@ -75,6 +75,21 @@ Launch The **ClearML Server** in any of the following formats:
     - [Kubernetes Helm](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_kubernetes_helm)
     - Manual [Kubernetes installation](https://clear.ml/docs/latest/docs/deploying_clearml/clearml_server_kubernetes)
 
+### JWT signing key
+
+Before starting the API server, generate a unique signing key with `openssl rand -hex 32`.
+Set the generated value as `auth.token_secret` inside an external `secure.conf`, or
+as `CLEARML__SECURE__AUTH__TOKEN_SECRET` in the API server's environment.
+
+For Docker Compose deployments, put `secure.conf` in the host configuration directory
+mounted at `/opt/clearml/config` inside the API server (by default `/opt/clearml/config`
+on Linux). The API server refuses to start with a missing, blank, short, or previously
+published default key.
+
+All API server replicas and workers must share the same key. Existing deployments
+using the published default must replace it. Changing the key invalidates previously
+issued JWTs and requires clients to authenticate again.
+
 ## Connecting ClearML to your ClearML Server
 
 In order to set up the **ClearML** client to work with your **ClearML Server**:
