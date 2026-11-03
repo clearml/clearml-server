@@ -398,7 +398,9 @@ def download_for_get_all(call: APICall, company, request: DownloadForGetAllReque
             projects = projects[0]
             if projects is None:
                 return "root"
-        project: Project = Project.objects(id=projects).only("basename").first()
+        project: Project = (
+            Project.objects(id=projects, company=company).only("basename").first()
+        )
         if not project:
             return
 

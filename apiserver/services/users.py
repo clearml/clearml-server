@@ -166,7 +166,7 @@ def update_user(user_id, company_id, data: dict) -> Tuple[int, dict]:
             k: v for k, v in partial_update_dict.items() if k in auth_user_update_fields
         }
         if auth_update:
-            AuthUser.objects(id=user_id).update(**auth_update)
+            AuthUser.objects(id=user_id, company=company_id).update(**auth_update)
 
     return ret
 
@@ -174,6 +174,14 @@ def update_user(user_id, company_id, data: dict) -> Tuple[int, dict]:
 @endpoint("users.update", response_data_model=UpdateResponse)
 def update(call, company_id, request: UserRequest):
     user_id = request.user
+    if user_id != call.identity.user and call.identity.role not in (
+        Role.system,
+        Role.root,
+        Role.admin,
+    ):
+        raise errors.forbidden.NoWritePermission(
+            "cannot update another user", user=user_id
+        )
     update_count, updated_fields = update_user(user_id, company_id, call.data)
     call.result.data_model = UpdateResponse(updated=update_count, fields=updated_fields)
 
