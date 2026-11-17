@@ -9,15 +9,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Notify Pylon API
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          REPO_NAME: ${{ github.event.repository.full_name }}
+          USER_LOGIN: ${{ github.event.issue.user.login }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          PYLON_ISSUES_URL: https://api.usepylon.com/issues
+          PYLON_API_KEY: ${{ secrets.PYLON_API_KEY }}
+          PYLON_ACCOUNT_ID: ${{ secrets.PYLON_ACCOUNT_ID }}
         run: |
-            curl --request POST \
-              --url https://api.usepylon.com/issues \
-              --header 'Authorization: Bearer ${{ secrets.PYLON_API_KEY }}' \
-              --header 'Content-Type: application/json' \
-              --data '{
-                "title": "${{ github.event.issue.title }}",
-                "body_html": "<p><strong>Repo:</strong> ${{ github.event.repository.full_name }}</p><p><strong>Opened by:</strong> ${{ github.event.issue.user.login }}</p><p>${{ github.event.issue.body }}</p><br/><a href=\"${{ github.event.issue.html_url }}\">View on GitHub</a>",
-                "account_id": "${{ secrets.PYLON_ACCOUNT_ID }}",
-                "tags": ["git issue"],
-                "destination_metadata": { "destination": "internal" }
-              }'
+          PAYLOAD=$(jq -n \
+            --arg issue_title "$ISSUE_TITLE" \
+            --arg issue_body "$ISSUE_BODY" \
+            --arg repo_name "$REPO_NAME" \
+            --arg user_login "$USER_LOGIN" \
+            --arg issue_url "$ISSUE_URL" \
+            --arg pylon_account_id "$PYLON_ACCOUNT_ID" \
+            '{
+              title: $issue_title,
+              body_html: (
+                "<p><strong>Repo:</strong> \($repo_name | @html)</p>" +
+                "<p><strong>Opened by:</strong> \($user_login | @html)</p>" +
+                "<p>\($issue_body | @html)</p>" +
+                "<br/>" +
+                "<a href=\"\($issue_url)\">View on GitHub</a>"
+              ),
+              account_id: $pylon_account_id,
+              tags: ["git issue"],
+              destination_metadata: { destination: "internal" }
+            }')
+
+          curl --request POST \
+            --url "$PYLON_ISSUES_URL" \
+            --header "Authorization: Bearer $PYLON_API_KEY" \
+            --header 'Content-Type: application/json' \
+            --data "$PAYLOAD"
