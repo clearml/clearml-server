@@ -338,6 +338,8 @@ class QueueBLL(object):
         :raise errors.bad_request.InvalidQueueOrTaskNotQueued: if the queue update operation failed
         """
         queue = self.get_by_id(company_id=company_id, queue_id=queue_id)
+        if not Task.objects(id=task_id, company=company_id).only("id").first():
+            raise errors.bad_request.InvalidTaskId(task=task_id)
         if any(e.task == task_id for e in queue.entries):
             raise errors.bad_request.TaskAlreadyQueued(task=task_id)
 

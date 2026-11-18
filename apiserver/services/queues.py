@@ -159,9 +159,11 @@ def delete(call: APICall, company_id, request: DeleteRequest):
     call.result.data = {"deleted": 1}
 
 
-def update_added_task_properties(queue: str, task: str, update_execution_queue: bool):
+def update_added_task_properties(
+    company: str, queue: str, task: str, update_execution_queue: bool
+):
     if update_execution_queue:
-        Task.objects(id=task).update(
+        Task.objects(id=task, company=company).update(
             execution__queue=queue, multi=False
         )
 
@@ -193,6 +195,7 @@ def move_task_to_queue(call: APICall, company_id, request: MoveTaskToQueueReques
         raise e
 
     update_added_task_properties(
+        company=company_id,
         queue=request.target_queue,
         task=request.task,
         update_execution_queue=request.update_execution_queue,
@@ -207,6 +210,7 @@ def add_task(call: APICall, company_id, request: AddTaskRequest):
         company_id=company_id, queue_id=request.queue, task_id=request.task
     )
     update_added_task_properties(
+        company=company_id,
         queue=request.queue,
         task=request.task,
         update_execution_queue=request.update_execution_queue,
@@ -222,7 +226,11 @@ def get_next_task(call: APICall, company_id, request: GetNextTaskRequest):
     )
     if entry:
         data = {"entry": entry.to_proper_dict()}
-        task = Task.objects(id=entry.task).only("company", "user", "status").first()
+        task = (
+            Task.objects(id=entry.task, company=company_id)
+            .only("company", "user", "status")
+            .first()
+        )
         if task:
             # fix racing condition that can result in the task being aborted
             # by an agent after it was already placed in a queue
