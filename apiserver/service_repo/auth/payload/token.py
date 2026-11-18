@@ -7,13 +7,24 @@ from datetime import datetime, timedelta
 from jwt.algorithms import get_default_algorithms
 
 from apiserver.apierrors import errors
+from apiserver.config import ConfigurationError
 from apiserver.config_repo import config
 from apiserver.database.model.auth import Role
 
 from .auth_type import AuthType
 from .payload import Payload
 
-token_secret = config.get("secure.auth.token_secret")
+token_secret = config.get("secure.auth.token_secret", None)
+if (
+    not isinstance(token_secret, str)
+    or len(token_secret.strip()) < 32
+    or token_secret.strip() == "Rq8FW84sSqVgq7WvBB_4EzNl9y8z8IGiDXX3C345_a5AZfcwZcwCIA"
+):
+    raise ConfigurationError(
+        "Set secure.auth.token_secret to a unique random signing key of at least "
+        "32 characters (e.g. openssl rand -hex 32), using external secure.conf or "
+        "CLEARML__SECURE__AUTH__TOKEN_SECRET. The published default is not accepted."
+    )
 
 log = config.logger(__file__)
 
