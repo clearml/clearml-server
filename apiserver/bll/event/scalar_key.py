@@ -29,7 +29,7 @@ class ScalarKey(ABC):
     """
 
     _enum_to_key = {}
-    bucket_key_key = "key"
+    average_key = "avg_key"
 
     @property
     @abstractmethod
@@ -62,6 +62,14 @@ class ScalarKey(ABC):
         :param interval: elasticsearch aggregation interval
         """
         pass
+
+    def _average_key_aggregation(self, **kwargs) -> dict:
+        """
+        Sub aggregation for the average key of the events in a bucket.
+        It is returned as the bucket x value since the bucket key is the bucket
+        lower bound, which is lower than the key of any event in a sparse bucket
+        """
+        return {"aggs": {self.average_key: {"avg": {"field": self.field, **kwargs}}}}
 
     def __init_subclass__(cls, **kwargs):
         """
@@ -96,7 +104,10 @@ class ScalarKey(ABC):
         """
         Extract x value and y value from a single bucket item
         """
-        return int(iter_data[self.bucket_key_key]), iter_data["avg_val"]["value"]
+        return (
+            round(iter_data[self.average_key]["value"]),
+            iter_data["avg_val"]["value"],
+        )
 
     def cast_value(self, value: Any) -> Any:
         """Cast value to appropriate type"""
@@ -119,7 +130,8 @@ class TimestampKey(ScalarKey):
                     "field": "timestamp",
                     "fixed_interval": f"{interval}ms",
                     "min_doc_count": 1,
-                }
+                },
+                **self._average_key_aggregation(),
             }
         }
 
@@ -139,7 +151,12 @@ class IterKey(ScalarKey):
     def get_aggregation(self, interval: int) -> dict:
         return {
             self.name: {
-                "histogram": {"field": "iter", "interval": interval, "min_doc_count": 1}
+                "histogram": {
+                    "field": "iter",
+                    "interval": interval,
+                    "min_doc_count": 1,
+                },
+                **self._average_key_aggregation(),
             }
         }
 
@@ -155,7 +172,7 @@ class ISOTimeKey(ScalarKey):
     name = "iso_time"
     field = "timestamp"
     enum_value = ScalarKeyEnum.iso_time
-    bucket_key_key = "key_as_string"
+    time_format = "strict_date_time"
 
     def get_aggregation(self, interval: int) -> dict:
         return {
@@ -164,10 +181,14 @@ class ISOTimeKey(ScalarKey):
                     "field": "timestamp",
                     "fixed_interval": f"{interval}ms",
                     "min_doc_count": 1,
-                    "format": "strict_date_time",
-                }
+                    "format": self.time_format,
+                },
+                **self._average_key_aggregation(format=self.time_format),
             }
         }
 
     def _get_iterations_data_single(self, iter_data):
-        return iter_data[self.bucket_key_key], iter_data["avg_val"]["value"]
+        return (
+            iter_data[self.average_key]["value_as_string"],
+            iter_data["avg_val"]["value"],
+        )
