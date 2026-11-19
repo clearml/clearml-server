@@ -64,8 +64,9 @@ EOF
 
     export NGINX_APISERVER_ADDR=${NGINX_APISERVER_ADDRESS:-http://apiserver:8008}
     export NGINX_FILESERVER_ADDR=${NGINX_FILESERVER_ADDRESS:-http://fileserver:8081}
+    export NGINX_WEBSERVER_PORT=${NGINX_WEBSERVER_PORT:-80}
     export COMMENT_IPV6_LISTEN=$([ "$DISABLE_NGINX_IPV6" = "true" ] && echo "#" || echo "")
-    envsubst '${COMMENT_IPV6_LISTEN} ${NGINX_APISERVER_ADDR} ${NGINX_FILESERVER_ADDR}' < /etc/nginx/clearml.conf.template > /etc/nginx/sites-enabled/default
+    envsubst '${NGINX_WEBSERVER_PORT} ${COMMENT_IPV6_LISTEN} ${NGINX_APISERVER_ADDR} ${NGINX_FILESERVER_ADDR}' < /etc/nginx/clearml.conf.template > /etc/nginx/sites-enabled/default
 
     if [[ -n "${CLEARML_SERVER_SUB_PATH}" ]]; then
       mkdir -p /etc/nginx/default.d/
@@ -81,10 +82,25 @@ EOF
 
 elif [[ ${SERVER_TYPE} == "fileserver" ]]; then
     cd /opt/clearml/fileserver/
-    if [ "$FILESERVER_USE_GUNICORN" = true ] ; then
-      gunicorn -t 600 --bind=0.0.0.0:8081 fileserver:app
+
+    if [[ -n $FILESERVER_USE_GUNICORN ]]; then
+      MAX_REQUESTS=
+      if [[ -n $FILESERVER_GUNICORN_MAX_REQUESTS ]]; then
+        MAX_REQUESTS="--max-requests $FILESERVER_GUNICORN_MAX_REQUESTS"
+        if [[ -n $FILESERVER_GUNICORN_MAX_REQUESTS_JITTER ]]; then
+          MAX_REQUESTS="$MAX_REQUESTS --max-requests-jitter $FILESERVER_GUNICORN_MAX_REQUESTS_JITTER"
+        fi
+      fi
+
+      export GUNICORN_CMD_ARGS=${FILESERVER_GUNICORN_CMD_ARGS}
+
+      # Note: don't be tempted to "fix" $MAX_REQUESTS with "$MAX_REQUESTS" as this produces an empty arg which fucks up gunicorn
+      gunicorn \
+        -w "${FILESERVER_GUNICORN_WORKERS:-8}" \
+        -t "${FILESERVER_GUNICORN_TIMEOUT:-600}" --bind="${FILESERVER_GUNICORN_BIND:-0.0.0.0:8081}" \
+        $MAX_REQUESTS fileserver:app
     else
-      python3 fileserver.py
+        python3 fileserver.py
     fi
 
 else

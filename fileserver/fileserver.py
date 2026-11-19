@@ -201,12 +201,12 @@ if config.get("fileserver.delete.allow_batch"):
 def main():
     parser = ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--port", "-p", type=int, default=8081, help="Port (default %(default)d)"
+        "--port", "-p", type=int, default=config.get("fileserver.listen.port"), help="Port (default %(default)d)"
     )
     parser.add_argument(
-        "--ip", "-i", type=str, default="0.0.0.0", help="Address (default %(default)s)"
+        "--ip", "-i", type=str, default=config.get("fileserver.listen.ip"), help="Address (default %(default)s)"
     )
-    parser.add_argument("--debug", action="store_true", default=False)
+    parser.add_argument("--debug", action="store_true", default=config.get("fileserver.debug"))
     parser.add_argument(
         "--upload-folder",
         "-u",
